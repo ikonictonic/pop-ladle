@@ -1,33 +1,30 @@
 import { createServer } from 'node:http'
 import { createApp } from './app/createApp.js'
-
-const host = process.env.HOST ?? '0.0.0.0'
-const port = Number.parseInt(process.env.PORT ?? '3000', 10)
-
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error(`PORT must be a valid TCP port. Received: ${process.env.PORT}`)
-}
+import { env } from './config/env.js'
+import { closeDatabasePool } from './database/pool.js'
 
 const app = createApp()
 const server = createServer(app)
 
-server.listen(port, host, () => {
-  const localHost = host === '0.0.0.0' ? 'localhost' : host
+server.listen(env.PORT, env.HOST, () => {
+  const localHost = env.HOST === '0.0.0.0' ? 'localhost' : env.HOST
   console.log(JSON.stringify({
     level: 'info',
     message: 'Pop & Ladle API listening',
-    url: `http://${localHost}:${port}`,
+    url: `http://${localHost}:${env.PORT}`,
     node: process.version,
-    env: process.env.NODE_ENV ?? 'development',
+    env: env.NODE_ENV,
   }))
 })
 
-function shutdown(signal) {
+async function shutdown(signal) {
   console.log(JSON.stringify({
     level: 'info',
     message: 'Stopping Pop & Ladle API',
     signal,
   }))
+
+  await closeDatabasePool()
 
   server.close((err) => {
     if (err) {

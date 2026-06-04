@@ -1,4 +1,9 @@
 import express from 'express'
+import { pingDatabase } from '../database/pool.js'
+import { createClerkRequestMiddleware } from '../features/auth/clerk.js'
+import { createCurrentUserRouter } from '../features/auth/currentUserRoutes.js'
+import { createHouseholdRouter } from '../features/households/householdRoutes.js'
+import { createMemberRouter } from '../features/members/memberRoutes.js'
 
 export function createApp() {
   const app = express()
@@ -7,6 +12,7 @@ export function createApp() {
   app.disable('x-powered-by')
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
+  app.use(createClerkRequestMiddleware())
 
   app.get('/', (_req, res) => {
     res.status(200).json({
@@ -17,6 +23,9 @@ export function createApp() {
         health: '/health',
         apiHealth: '/api/v1/health',
         readiness: '/api/v1/ready',
+        me: '/api/v1/me',
+        households: '/api/v1/households',
+        householdMembers: '/api/v1/households/:householdId/members',
       },
     })
   })
@@ -30,12 +39,18 @@ export function createApp() {
     })
   })
 
-  app.get('/api/v1/ready', (_req, res) => {
-    res.status(200).json({
-      status: 'ready',
-      database: 'not_configured_yet',
+  app.get('/api/v1/ready', async (_req, res) => {
+    const database = await pingDatabase()
+
+    res.status(database.ok ? 200 : 503).json({
+      status: database.ok ? 'ready' : 'not_ready',
+      database,
     })
   })
+
+  app.use('/api/v1', createCurrentUserRouter())
+  app.use('/api/v1', createHouseholdRouter())
+  app.use('/api/v1', createMemberRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

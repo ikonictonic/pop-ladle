@@ -8,9 +8,12 @@
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch src/server.js",
+    "db:migrate": "node --env-file-if-exists=.env src/database/migrate.js",
     "start": "node --env-file-if-exists=.env src/server.js"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "@clerk/express": "^2.1.23",
+    "express": "^5.2.1",
+    "pg": "^8.21.0"
   }
 }
