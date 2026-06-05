@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipes/{{recipeId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "title": "Gentle Tomato Pasta - Updated",
+      "careRecipientId": "{{careRecipientId}}",
+      "mealSlots": ["dinner"],
+      "recipeCategories": ["family_meal"],
+      "isFavorite": true
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 18000

@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "displayName": "Dad",
+      "relationshipLabel": "father",
+      "sortOrder": 100,
+      "profileText": "Diagnoses, medications, allergies, texture needs, appetite notes, hydration needs, meal timing, and care team instructions go here.",
+      "completedSections": {
+        "basics": true
+      },
+      "sourceSummary": {
+        "source": "manual"
+      }
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 14600
+

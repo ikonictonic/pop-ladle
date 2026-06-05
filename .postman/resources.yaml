@@ -1,0 +1,9 @@
+# Use this workspace to collaborate
+workspace:
+  id: 3441b00c-68ec-461e-b31e-e7d56ab79dad
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ..\postman\collections\Pop & Ladle API: bed56dbb-6a0a-44b2-a230-74b5a6800605

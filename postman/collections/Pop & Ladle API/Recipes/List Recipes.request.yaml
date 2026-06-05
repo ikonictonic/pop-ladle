@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipes?limit=50&careRecipientId={{careRecipientId}}"
+method: GET
+queryParams:
+  limit: "50"
+  careRecipientId: "{{careRecipientId}}"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 15000

@@ -1,0 +1,8 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/me"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 5000

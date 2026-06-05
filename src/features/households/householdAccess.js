@@ -8,12 +8,16 @@ export function createHttpError(statusCode, code, message, expose = true) {
   return err
 }
 
-export function normalizeHouseholdId(value) {
+export function normalizeUuid(value, code, message) {
   if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
-    throw createHttpError(400, 'INVALID_HOUSEHOLD_ID', 'Household id must be a UUID.', true)
+    throw createHttpError(400, code, message, true)
   }
 
   return value.toLowerCase()
+}
+
+export function normalizeHouseholdId(value) {
+  return normalizeUuid(value, 'INVALID_HOUSEHOLD_ID', 'Household id must be a UUID.')
 }
 
 export async function requireHouseholdRole(db, userId, householdId, allowedRoles) {

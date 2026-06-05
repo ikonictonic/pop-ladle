@@ -1,0 +1,12 @@
+$kind: collection
+description: Local API testing collection for the Express backend.
+variables:
+  baseUrl: http://localhost:9000
+  clerkSessionToken: ""
+  householdId: ""
+  inviteToken: ""
+  inviteId: ""
+  memberId: ""
+  careRecipientId: ""
+  recipeId: ""
+  runId: ""

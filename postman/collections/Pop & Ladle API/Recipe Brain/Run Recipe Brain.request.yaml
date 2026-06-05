@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipe-brain/runs"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "title": "Gentle Tomato Pasta",
+      "careRecipientId": "{{careRecipientId}}",
+      "sourceRecipe": "Original family tomato pasta recipe. Pasta, tomato sauce, olive oil, herbs, and parmesan.",
+      "mealSlots": ["dinner"],
+      "recipeCategories": ["family_meal"],
+      "hardRules": ["No grapefruit."],
+      "dailyLimits": {
+        "sodium_mg": 1500
+      },
+      "save": true
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 20000
+

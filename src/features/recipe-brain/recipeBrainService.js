@@ -1,0 +1,736 @@
+/**
+ * Recipe Brain orchestration — the governed Care Team committee.
+ *
+ * Pipeline: validate + gate access -> load the Super-Admin-governed roster ->
+ * build the shared patient context -> fan out specialists in parallel via the
+ * server-side provider proxy -> Chairman synthesis -> Clinical Review verdict
+ * (the gate) -> persist run + deliberations + (when not denied) the recipe.
+ *
+ * Every upstream model call is recorded in llm_proxy_logs; every specialist and
+ * the Chairman get their own run rows. Provider keys never leave the server.
+ */
+
+import { getDatabasePool } from '../../database/pool.js'
+import { getCurrentAppUser } from '../auth/currentUserService.js'
+import {
+  createHttpError,
+  normalizeUuid,
+  requireHouseholdRole,
+} from '../households/householdAccess.js'
+import { callModel } from './providers/index.js'
+import {
+  buildChairmanPrompt,
+  buildPatientContext,
+  buildSpecialistSystemPrompt,
+  parseChairmanEnvelope,
+  parseSpecialistEnvelope,
+} from './prompts.js'
+
+const GENERATE_ROLES = ['owner', 'co_owner', 'caregiver']
+const SPECIALIST_USER_PROMPT =
+  'Review the recipe above against the patient context. Return the JSON envelope as instructed.'
+const MAX_SOURCE_LENGTH = 20000
+const MAX_TITLE_LENGTH = 180
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+function normalizeText(value, fallback = '') {
+  return typeof value === 'string' ? value.trim() : fallback
+}
+
+function normalizeStringArray(value, fieldName) {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) {
+    throw createHttpError(400, 'INVALID_ARRAY', `${fieldName} must be an array of strings.`, true)
+  }
+  return value.map((item) => normalizeText(item)).filter(Boolean)
+}
+
+function normalizeJsonObject(value, fieldName) {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw createHttpError(400, 'INVALID_JSON_OBJECT', `${fieldName} must be a JSON object.`, true)
+  }
+  return value
+}
+
+function normalizeRunPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const sourceRecipe = normalizeText(payload.sourceRecipe ?? payload.sourceRecipeText)
+  if (!sourceRecipe) {
+    throw createHttpError(400, 'INVALID_SOURCE_RECIPE', 'sourceRecipe is required.', true)
+  }
+  if (sourceRecipe.length > MAX_SOURCE_LENGTH) {
+    throw createHttpError(
+      400,
+      'INVALID_SOURCE_RECIPE',
+      `sourceRecipe must be ${MAX_SOURCE_LENGTH} characters or fewer.`,
+      true,
+    )
+  }
+
+  const title = normalizeText(payload.title)
+  if (title.length > MAX_TITLE_LENGTH) {
+    throw createHttpError(
+      400,
+      'INVALID_RECIPE_TITLE',
+      `title must be ${MAX_TITLE_LENGTH} characters or fewer.`,
+      true,
+    )
+  }
+
+  return {
+    sourceRecipe,
+    clinicalProfileText: normalizeText(payload.clinicalProfileText),
+    hardRules: normalizeStringArray(payload.hardRules, 'hardRules'),
+    dailyLimits: normalizeJsonObject(payload.dailyLimits, 'dailyLimits') ?? {},
+    nutritionSnapshot: normalizeJsonObject(payload.nutritionSnapshot, 'nutritionSnapshot'),
+    title,
+    mealSlots: normalizeStringArray(payload.mealSlots, 'mealSlots').map((s) => s.toLowerCase()),
+    recipeCategories: normalizeStringArray(payload.recipeCategories, 'recipeCategories').map((s) => s.toLowerCase()),
+    careRecipientId: payload.careRecipientId
+      ? normalizeUuid(payload.careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
+      : null,
+    save: payload.save === undefined ? true : Boolean(payload.save),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Roster
+// ---------------------------------------------------------------------------
+
+async function loadActiveRoster(db) {
+  const result = await db.query(
+    `
+      select
+        id,
+        role_key as "roleKey",
+        display_name as "displayName",
+        kind,
+        provider,
+        model,
+        system_prompt as "systemPrompt",
+        position
+      from llm_provider_configs
+      where active = true
+      order by kind, position
+    `,
+  )
+
+  const specialists = result.rows.filter((row) => row.kind === 'specialist')
+  const chairman = result.rows.find((row) => row.kind === 'chairman') ?? null
+
+  if (specialists.length === 0) {
+    throw createHttpError(
+      422,
+      'NO_ACTIVE_SPECIALISTS',
+      'No active Care Team specialists are configured.',
+      true,
+    )
+  }
+  if (!chairman) {
+    throw createHttpError(
+      422,
+      'NO_ACTIVE_CHAIRMAN',
+      'No active Chairman (synthesizer) is configured.',
+      true,
+    )
+  }
+
+  return { specialists, chairman }
+}
+
+async function loadCareRecipientContext(db, householdId, careRecipientId) {
+  if (!careRecipientId) return null
+
+  const result = await db.query(
+    `
+      select
+        cr.id,
+        cr.display_name as "displayName",
+        cr.relationship_label as "relationshipLabel",
+        cr.status,
+        cp.profile_text as "profileText",
+        cp.completed_sections as "completedSections",
+        cp.source_summary as "sourceSummary",
+        cp.updated_at as "profileUpdatedAt"
+      from care_recipients cr
+      left join care_profiles cp on cp.care_recipient_id = cr.id
+      where cr.id = $1
+        and cr.household_id = $2
+        and cr.status = 'active'
+      limit 1
+    `,
+    [careRecipientId, householdId],
+  )
+
+  const careRecipient = result.rows[0] ?? null
+
+  if (!careRecipient) {
+    throw createHttpError(
+      404,
+      'CARE_RECIPIENT_NOT_FOUND',
+      'Care recipient was not found for this household.',
+      true,
+    )
+  }
+
+  return {
+    id: careRecipient.id,
+    displayName: careRecipient.displayName,
+    relationshipLabel: careRecipient.relationshipLabel,
+    status: careRecipient.status,
+    profileText: careRecipient.profileText ?? '',
+    completedSections: careRecipient.completedSections ?? {},
+    sourceSummary: careRecipient.sourceSummary ?? {},
+    profileUpdatedAt: careRecipient.profileUpdatedAt ?? null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Specialist + Chairman passes
+// ---------------------------------------------------------------------------
+
+async function runSpecialist(specialist, contextBlock, signal) {
+  const system = buildSpecialistSystemPrompt(specialist, contextBlock)
+  const result = await callModel({
+    provider: specialist.provider,
+    model: specialist.model,
+    system,
+    user: SPECIALIST_USER_PROMPT,
+    purpose: 'specialist',
+    signal,
+  })
+
+  const envelope = result.ok ? parseSpecialistEnvelope(result.content) : null
+
+  return {
+    roleKey: specialist.roleKey,
+    displayName: specialist.displayName,
+    provider: specialist.provider,
+    model: specialist.model,
+    position: specialist.position,
+    ok: result.ok && envelope !== null,
+    verdict: envelope?.verdict ?? null,
+    verdictRationale: envelope?.verdict_rationale ?? '',
+    concerns: envelope?.concerns ?? [],
+    suggestions: envelope?.suggestions ?? [],
+    rawOutput: result.content,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    latencyMs: result.latencyMs,
+    httpStatus: result.httpStatus,
+    error: result.ok
+      ? (envelope ? null : 'Specialist returned a malformed envelope.')
+      : result.error,
+  }
+}
+
+async function runChairman(chairman, contextBlock, deliberations, signal) {
+  const { system, user } = buildChairmanPrompt(chairman, contextBlock, deliberations)
+  const result = await callModel({
+    provider: chairman.provider,
+    model: chairman.model,
+    system,
+    user,
+    purpose: 'chairman',
+    signal,
+  })
+
+  const envelope = result.ok ? parseChairmanEnvelope(result.content) : null
+  const synthesis = envelope ?? rollUpFallback(deliberations, result.content)
+
+  return {
+    provider: chairman.provider,
+    model: chairman.model,
+    ok: result.ok && envelope !== null,
+    ...synthesis,
+    rawOutput: result.content,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    latencyMs: result.latencyMs,
+    httpStatus: result.httpStatus,
+    error: result.ok
+      ? (envelope ? null : 'Chairman returned a malformed envelope; rolled up specialist verdicts.')
+      : result.error,
+  }
+}
+
+// Deterministic fallback when synthesis fails — never silently approve.
+function rollUpFallback(deliberations, rawContent) {
+  const hasDeny = deliberations.some((d) => d.verdict === 'deny')
+  const hasCaveats = deliberations.some((d) => d.verdict === 'approve_with_caveats' || !d.ok)
+  const verdict = hasDeny ? 'denied' : (hasCaveats ? 'approved_with_caveats' : 'approved')
+
+  return {
+    recipe_markdown: rawContent || '(Chairman synthesis failed — see specialist deliberations.)',
+    verdict,
+    verdict_summary: 'Auto-rolled-up from specialist verdicts; Chairman synthesis did not produce a valid envelope.',
+    caveats: deliberations
+      .filter((d) => d.verdict !== 'approve')
+      .map((d) => `${d.displayName}: ${d.verdictRationale || d.error || 'no rationale'}`),
+    warning_items: [],
+    clinician_flags: [],
+  }
+}
+
+function sumTokens(deliberations, chairman, key) {
+  const specialistTotal = deliberations.reduce((acc, d) => acc + (d[key] ?? 0), 0)
+  return specialistTotal + (chairman[key] ?? 0)
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+async function insertRunRow(db, { householdId, careRecipientId, payload, userId, specialistCount }) {
+  const result = await db.query(
+    `
+      insert into recipe_brain_runs (
+        household_id, care_recipient_id, status, mode,
+        source_recipe_text, clinical_profile_text, specialist_count,
+        requested_by, started_at
+      )
+      values ($1, $2, 'running', 'committee', $3, $4, $5, $6, now())
+      returning id
+    `,
+    [householdId, careRecipientId, payload.sourceRecipe, payload.clinicalProfileText, specialistCount, userId],
+  )
+  return result.rows[0].id
+}
+
+async function persistSpecialistRows(client, runId, deliberations) {
+  for (const d of deliberations) {
+    await client.query(
+      `
+        insert into care_team_specialist_runs (
+          brain_run_id, role_key, display_name, provider, model, ok, verdict,
+          verdict_rationale, concerns, suggestions, raw_output,
+          input_tokens, output_tokens, latency_ms, error_message, position
+        )
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16)
+      `,
+      [
+        runId, d.roleKey, d.displayName, d.provider, d.model, d.ok, d.verdict,
+        d.verdictRationale, JSON.stringify(d.concerns), JSON.stringify(d.suggestions),
+        d.rawOutput, d.inputTokens, d.outputTokens, d.latencyMs, d.error, d.position,
+      ],
+    )
+
+    await insertProxyLog(client, runId, 'specialist', d)
+  }
+}
+
+async function persistChairmanRow(client, runId, chairman) {
+  await client.query(
+    `
+      insert into chairman_synthesis_runs (
+        brain_run_id, provider, model, ok, verdict, verdict_summary,
+        recipe_markdown, caveats, warning_items, clinician_flags, raw_output,
+        input_tokens, output_tokens, latency_ms, error_message
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15)
+    `,
+    [
+      runId, chairman.provider, chairman.model, chairman.ok, chairman.verdict,
+      chairman.verdict_summary, chairman.recipe_markdown, JSON.stringify(chairman.caveats),
+      JSON.stringify(chairman.warning_items), JSON.stringify(chairman.clinician_flags),
+      chairman.rawOutput, chairman.inputTokens, chairman.outputTokens, chairman.latencyMs,
+      chairman.error,
+    ],
+  )
+
+  await insertProxyLog(client, runId, 'chairman', chairman)
+}
+
+async function insertProxyLog(client, runId, purpose, call) {
+  await client.query(
+    `
+      insert into llm_proxy_logs (
+        brain_run_id, provider, model, purpose, status, http_status,
+        input_tokens, output_tokens, latency_ms, error_message
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    `,
+    [
+      runId, call.provider, call.model, purpose, call.error ? 'error' : 'ok',
+      call.httpStatus, call.inputTokens, call.outputTokens, call.latencyMs, call.error,
+    ],
+  )
+}
+
+async function persistRecipe(client, { householdId, userId, runId, chairman, payload }) {
+  const request = await client.query(
+    `
+      insert into recipe_requests (
+        household_id, care_recipient_id, source_recipe_text, provider, model,
+        status, requested_by, completed_at
+      )
+      values ($1, $2, $3, $4, $5, 'completed', $6, now())
+      returning id
+    `,
+    [
+      householdId,
+      payload.careRecipientId,
+      payload.sourceRecipe,
+      chairman.provider,
+      chairman.model,
+      userId,
+    ],
+  )
+
+  const title = payload.title || parseTitleFromMarkdown(chairman.recipe_markdown) || 'Untitled Recipe'
+
+  const recipe = await client.query(
+    `
+      insert into recipe_adaptations (
+        recipe_request_id, household_id, care_recipient_id, title,
+        source_recipe_text, output_markdown, meal_slots, recipe_categories,
+        saved_by, saved_at, generation_mode,
+        clinical_warning, clinical_warning_items, clinical_review_status,
+        clinical_review_summary, recipe_brain_run_id, created_by, updated_by
+      )
+      values (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), 'committee',
+        $10, $11::jsonb, $12, $13, $14, $9, $9
+      )
+      returning
+        id,
+        care_recipient_id as "careRecipientId",
+        title,
+        output_markdown as "outputMarkdown",
+        clinical_review_status as "clinicalReviewStatus",
+        clinical_review_summary as "clinicalReviewSummary",
+        clinical_warning as "clinicalWarning",
+        clinical_warning_items as "clinicalWarningItems",
+        recipe_brain_run_id as "recipeBrainRunId",
+        saved_at as "savedAt",
+        created_at as "createdAt"
+    `,
+    [
+      request.rows[0].id, householdId, payload.careRecipientId, title,
+      payload.sourceRecipe, chairman.recipe_markdown, payload.mealSlots,
+      payload.recipeCategories, userId,
+      chairman.warning_items.length > 0, JSON.stringify(chairman.warning_items),
+      chairman.verdict, chairman.verdict_summary, runId,
+    ],
+  )
+
+  return recipe.rows[0]
+}
+
+async function completeRun(client, runId, { chairman, totalInputTokens, totalOutputTokens, recipeId }) {
+  await client.query(
+    `
+      update recipe_brain_runs
+      set
+        status = 'completed',
+        verdict = $2,
+        verdict_summary = $3,
+        caveats = $4::jsonb,
+        warning_items = $5::jsonb,
+        clinician_flags = $6::jsonb,
+        total_input_tokens = $7,
+        total_output_tokens = $8,
+        recipe_adaptation_id = $9,
+        completed_at = now()
+      where id = $1
+    `,
+    [
+      runId, chairman.verdict, chairman.verdict_summary, JSON.stringify(chairman.caveats),
+      JSON.stringify(chairman.warning_items), JSON.stringify(chairman.clinician_flags),
+      totalInputTokens, totalOutputTokens, recipeId,
+    ],
+  )
+}
+
+async function failRun(db, runId, message) {
+  try {
+    await db.query(
+      `update recipe_brain_runs set status = 'failed', error_message = $2, completed_at = now() where id = $1`,
+      [runId, message?.slice(0, 1000) ?? 'Recipe Brain run failed.'],
+    )
+  } catch {
+    // Best-effort; the original error is what matters.
+  }
+}
+
+function parseTitleFromMarkdown(markdown) {
+  for (const line of (markdown ?? '').split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/)
+    if (headingMatch?.[1]) return headingMatch[1].trim()
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, payload, options = {}) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  const runPayload = normalizeRunPayload(payload)
+  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  const careRecipient = await loadCareRecipientContext(
+    db,
+    access.household.id,
+    runPayload.careRecipientId,
+  )
+  const effectiveRunPayload = {
+    ...runPayload,
+    clinicalProfileText: careRecipient ? careRecipient.profileText : runPayload.clinicalProfileText,
+  }
+  const { specialists, chairman } = await loadActiveRoster(db)
+
+  const runId = await insertRunRow(db, {
+    householdId: access.household.id,
+    careRecipientId: effectiveRunPayload.careRecipientId,
+    payload: effectiveRunPayload,
+    userId: user.id,
+    specialistCount: specialists.length,
+  })
+
+  try {
+    const contextBlock = buildPatientContext({
+      careRecipient,
+      clinicalProfileText: effectiveRunPayload.clinicalProfileText,
+      hardRules: effectiveRunPayload.hardRules,
+      sourceRecipe: effectiveRunPayload.sourceRecipe,
+      nutritionSnapshot: effectiveRunPayload.nutritionSnapshot,
+      dailyLimits: effectiveRunPayload.dailyLimits,
+    })
+
+    // Specialists in parallel; the Chairman synthesizes once all have returned.
+    const deliberations = await Promise.all(
+      specialists.map((specialist) => runSpecialist(specialist, contextBlock, options.signal)),
+    )
+    const chairmanResult = await runChairman(chairman, contextBlock, deliberations, options.signal)
+
+    const totalInputTokens = sumTokens(deliberations, chairmanResult, 'inputTokens')
+    const totalOutputTokens = sumTokens(deliberations, chairmanResult, 'outputTokens')
+    const shouldSave = runPayload.save && chairmanResult.verdict !== 'denied'
+
+    const client = await db.connect()
+    let recipe = null
+    try {
+      await client.query('begin')
+      await persistSpecialistRows(client, runId, deliberations)
+      await persistChairmanRow(client, runId, chairmanResult)
+      if (shouldSave) {
+        recipe = await persistRecipe(client, {
+          householdId: access.household.id,
+          userId: user.id,
+          runId,
+          chairman: chairmanResult,
+          payload: effectiveRunPayload,
+        })
+      }
+      await completeRun(client, runId, {
+        chairman: chairmanResult,
+        totalInputTokens,
+        totalOutputTokens,
+        recipeId: recipe?.id ?? null,
+      })
+      await client.query('commit')
+    } catch (err) {
+      try { await client.query('rollback') } catch { /* keep original error */ }
+      throw err
+    } finally {
+      client.release()
+    }
+
+    return {
+      household: access.household,
+      requester: access.membership,
+      run: {
+        id: runId,
+        careRecipientId: effectiveRunPayload.careRecipientId,
+        status: 'completed',
+        verdict: chairmanResult.verdict,
+        verdictSummary: chairmanResult.verdict_summary,
+        caveats: chairmanResult.caveats,
+        warningItems: chairmanResult.warning_items,
+        clinicianFlags: chairmanResult.clinician_flags,
+        specialistCount: specialists.length,
+        totalInputTokens,
+        totalOutputTokens,
+        saved: Boolean(recipe),
+      },
+      careRecipient: careRecipient
+        ? {
+            id: careRecipient.id,
+            displayName: careRecipient.displayName,
+            relationshipLabel: careRecipient.relationshipLabel,
+            profileUpdatedAt: careRecipient.profileUpdatedAt,
+          }
+        : null,
+      deliberations: deliberations.map(publicDeliberation),
+      chairman: {
+        provider: chairmanResult.provider,
+        model: chairmanResult.model,
+        ok: chairmanResult.ok,
+        error: chairmanResult.error,
+      },
+      recipe,
+    }
+  } catch (err) {
+    await failRun(db, runId, err.message)
+    throw err
+  }
+}
+
+export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, runId) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  const normalizedRunId = normalizeUuid(runId, 'INVALID_RUN_ID', 'Run id must be a UUID.')
+  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+
+  const runResult = await db.query(
+    `
+      select
+        r.id,
+        r.care_recipient_id as "careRecipientId",
+        cr.display_name as "careRecipientDisplayName",
+        cr.relationship_label as "careRecipientRelationshipLabel",
+        r.status,
+        r.verdict,
+        r.verdict_summary as "verdictSummary",
+        r.caveats,
+        r.warning_items as "warningItems",
+        r.clinician_flags as "clinicianFlags",
+        r.specialist_count as "specialistCount",
+        r.total_input_tokens as "totalInputTokens",
+        r.total_output_tokens as "totalOutputTokens",
+        r.recipe_adaptation_id as "recipeAdaptationId",
+        r.error_message as "errorMessage",
+        r.started_at as "startedAt",
+        r.completed_at as "completedAt",
+        r.created_at as "createdAt"
+      from recipe_brain_runs r
+      left join care_recipients cr on cr.id = r.care_recipient_id
+      where r.id = $1 and r.household_id = $2
+      limit 1
+    `,
+    [normalizedRunId, access.household.id],
+  )
+
+  const run = runResult.rows[0]
+  if (!run) {
+    throw createHttpError(404, 'RUN_NOT_FOUND', 'Recipe Brain run was not found.', true)
+  }
+
+  const specialistResult = await db.query(
+    `
+      select
+        role_key as "roleKey", display_name as "displayName", provider, model, ok,
+        verdict, verdict_rationale as "verdictRationale", concerns, suggestions,
+        input_tokens as "inputTokens", output_tokens as "outputTokens",
+        latency_ms as "latencyMs", error_message as "errorMessage", position
+      from care_team_specialist_runs
+      where brain_run_id = $1
+      order by position
+    `,
+    [normalizedRunId],
+  )
+
+  const chairmanResult = await db.query(
+    `
+      select
+        provider, model, ok, verdict, verdict_summary as "verdictSummary",
+        recipe_markdown as "recipeMarkdown", caveats,
+        warning_items as "warningItems", clinician_flags as "clinicianFlags",
+        input_tokens as "inputTokens", output_tokens as "outputTokens",
+        latency_ms as "latencyMs", error_message as "errorMessage"
+      from chairman_synthesis_runs
+      where brain_run_id = $1
+      order by created_at desc
+      limit 1
+    `,
+    [normalizedRunId],
+  )
+
+  return {
+    household: access.household,
+    requester: access.membership,
+    run,
+    deliberations: specialistResult.rows,
+    chairman: chairmanResult.rows[0] ?? null,
+  }
+}
+
+export async function listRecipeBrainRunsForCurrentUser(clerkUserId, householdId, query = {}) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  const requestedLimit = Number.parseInt(query.limit ?? '50', 10)
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
+
+  const result = await db.query(
+    `
+      select
+        r.id,
+        r.care_recipient_id as "careRecipientId",
+        cr.display_name as "careRecipientDisplayName",
+        cr.relationship_label as "careRecipientRelationshipLabel",
+        r.status,
+        r.verdict,
+        r.verdict_summary as "verdictSummary",
+        r.specialist_count as "specialistCount",
+        r.recipe_adaptation_id as "recipeAdaptationId",
+        r.total_input_tokens as "totalInputTokens",
+        r.total_output_tokens as "totalOutputTokens",
+        r.created_at as "createdAt",
+        r.completed_at as "completedAt"
+      from recipe_brain_runs r
+      left join care_recipients cr on cr.id = r.care_recipient_id
+      where r.household_id = $1
+      order by r.created_at desc
+      limit $2
+    `,
+    [access.household.id, limit],
+  )
+
+  return {
+    household: access.household,
+    requester: access.membership,
+    runs: result.rows,
+  }
+}
+
+function publicDeliberation(d) {
+  return {
+    roleKey: d.roleKey,
+    displayName: d.displayName,
+    provider: d.provider,
+    model: d.model,
+    ok: d.ok,
+    verdict: d.verdict,
+    verdictRationale: d.verdictRationale,
+    concerns: d.concerns,
+    suggestions: d.suggestions,
+    inputTokens: d.inputTokens,
+    outputTokens: d.outputTokens,
+    latencyMs: d.latencyMs,
+    error: d.error,
+  }
+}

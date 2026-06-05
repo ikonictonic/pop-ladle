@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "displayName": "Dad",
+      "relationshipLabel": "father",
+      "sortOrder": 90,
+      "status": "active"
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 14800
+

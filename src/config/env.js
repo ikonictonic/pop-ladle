@@ -15,4 +15,10 @@ export const env = Object.freeze({
   DATABASE_URL: process.env.DATABASE_URL ?? '',
   CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY ?? '',
   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY ?? '',
+  // Recipe Brain provider keys — server-side only, resolved by provider name.
+  // Never shipped to clients. A missing key surfaces as a per-specialist run
+  // error rather than fabricating a clinical verdict.
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+  GROQ_API_KEY: process.env.GROQ_API_KEY ?? '',
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
 })

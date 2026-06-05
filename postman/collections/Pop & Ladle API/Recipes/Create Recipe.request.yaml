@@ -1,0 +1,23 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipes"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "title": "Gentle Tomato Pasta",
+      "careRecipientId": "{{careRecipientId}}",
+      "sourceRecipeText": "Original family tomato pasta recipe.",
+      "outputMarkdown": "# Gentle Tomato Pasta\n\nA saved household recipe draft.\n\n## Ingredients\n- Pasta\n- Tomato sauce\n\n## Steps\n1. Cook pasta.\n2. Warm sauce.\n3. Combine and serve.",
+      "mealSlots": ["dinner"],
+      "recipeCategories": ["family_meal"],
+      "targetServings": 4,
+      "generationMode": "manual"
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 16000

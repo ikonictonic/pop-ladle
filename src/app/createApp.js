@@ -2,8 +2,11 @@ import express from 'express'
 import { pingDatabase } from '../database/pool.js'
 import { createClerkRequestMiddleware } from '../features/auth/clerk.js'
 import { createCurrentUserRouter } from '../features/auth/currentUserRoutes.js'
+import { createCareRecipientRouter } from '../features/care-recipients/careRecipientRoutes.js'
 import { createHouseholdRouter } from '../features/households/householdRoutes.js'
 import { createMemberRouter } from '../features/members/memberRoutes.js'
+import { createRecipeRouter } from '../features/recipes/recipeRoutes.js'
+import { createRecipeBrainRouter } from '../features/recipe-brain/recipeBrainRoutes.js'
 
 export function createApp() {
   const app = express()
@@ -26,6 +29,19 @@ export function createApp() {
         me: '/api/v1/me',
         households: '/api/v1/households',
         householdMembers: '/api/v1/households/:householdId/members',
+        updateMemberRole: '/api/v1/households/:householdId/members/:memberId/role',
+        suspendMember: '/api/v1/households/:householdId/members/:memberId/suspend',
+        removeMember: '/api/v1/households/:householdId/members/:memberId/remove',
+        householdInvites: '/api/v1/households/:householdId/invites',
+        revokeHouseholdInvite: '/api/v1/households/:householdId/invites/:inviteId/revoke',
+        acceptInvite: '/api/v1/invites/accept',
+        careRecipients: '/api/v1/households/:householdId/care-recipients',
+        careRecipient: '/api/v1/households/:householdId/care-recipients/:careRecipientId',
+        careProfile: '/api/v1/households/:householdId/care-recipients/:careRecipientId/profile',
+        recipes: '/api/v1/households/:householdId/recipes',
+        recipe: '/api/v1/households/:householdId/recipes/:recipeId',
+        recipeBrainRuns: '/api/v1/households/:householdId/recipe-brain/runs',
+        recipeBrainRun: '/api/v1/households/:householdId/recipe-brain/runs/:runId',
       },
     })
   })
@@ -51,6 +67,9 @@ export function createApp() {
   app.use('/api/v1', createCurrentUserRouter())
   app.use('/api/v1', createHouseholdRouter())
   app.use('/api/v1', createMemberRouter())
+  app.use('/api/v1', createCareRecipientRouter())
+  app.use('/api/v1', createRecipeRouter())
+  app.use('/api/v1', createRecipeBrainRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

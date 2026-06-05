@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}/profile"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "profileText": "Updated clinical profile text for recipe adaptation.",
+      "completedSections": {
+        "basics": true,
+        "medications": true,
+        "foodSafety": true
+      },
+      "sourceSummary": {
+        "source": "manual",
+        "lastReviewedBy": "household"
+      }
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 14950
+

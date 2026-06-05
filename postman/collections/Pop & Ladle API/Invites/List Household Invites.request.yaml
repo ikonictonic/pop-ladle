@@ -1,0 +1,8 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/invites"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 12000

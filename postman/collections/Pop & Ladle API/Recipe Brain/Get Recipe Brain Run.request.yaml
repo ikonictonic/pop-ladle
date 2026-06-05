@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipe-brain/runs/{{runId}}"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 20200
+

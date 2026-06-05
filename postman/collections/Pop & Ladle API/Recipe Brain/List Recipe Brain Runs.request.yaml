@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipe-brain/runs?limit=50"
+method: GET
+queryParams:
+  limit: "50"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 20100
+

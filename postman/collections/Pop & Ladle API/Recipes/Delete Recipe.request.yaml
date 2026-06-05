@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/recipes/{{recipeId}}"
+method: DELETE
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 19000
+
