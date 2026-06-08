@@ -1,0 +1,23 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/hard-rules/{{hardRuleId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "ruleText": "No grapefruit or pomelo",
+      "triggerTerms": ["grapefruit", "pomelo"],
+      "replacementText": "Use lemon zest or a splash of orange juice.",
+      "ruleType": "replace",
+      "severity": "hard",
+      "isActive": true,
+      "sortOrder": 90
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 17400
+

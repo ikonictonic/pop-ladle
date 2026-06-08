@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/clinical-review/{{recipeId}}/decision"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "status": "approved_with_caveats",
+      "notes": "Looks good after the committee pass.",
+      "caveats": "Serve a measured portion; confirm potassium limit with the renal dietitian."
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 21200

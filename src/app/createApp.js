@@ -3,10 +3,12 @@ import { pingDatabase } from '../database/pool.js'
 import { createClerkRequestMiddleware } from '../features/auth/clerk.js'
 import { createCurrentUserRouter } from '../features/auth/currentUserRoutes.js'
 import { createCareRecipientRouter } from '../features/care-recipients/careRecipientRoutes.js'
+import { createHardRuleRouter } from '../features/hard-rules/hardRuleRoutes.js'
 import { createHouseholdRouter } from '../features/households/householdRoutes.js'
 import { createMemberRouter } from '../features/members/memberRoutes.js'
 import { createRecipeRouter } from '../features/recipes/recipeRoutes.js'
 import { createRecipeBrainRouter } from '../features/recipe-brain/recipeBrainRoutes.js'
+import { createClinicalReviewRouter } from '../features/clinical-review/clinicalReviewRoutes.js'
 
 export function createApp() {
   const app = express()
@@ -38,10 +40,19 @@ export function createApp() {
         careRecipients: '/api/v1/households/:householdId/care-recipients',
         careRecipient: '/api/v1/households/:householdId/care-recipients/:careRecipientId',
         careProfile: '/api/v1/households/:householdId/care-recipients/:careRecipientId/profile',
+        clinicalProfileTemplate: '/api/v1/clinical-profile-template',
+        clinicalProfile: '/api/v1/households/:householdId/care-recipients/:careRecipientId/clinical-profile',
+        clinicalProfileSection: '/api/v1/households/:householdId/care-recipients/:careRecipientId/clinical-profile/sections/:sectionKey',
+        hardRules: '/api/v1/households/:householdId/hard-rules',
+        hardRule: '/api/v1/households/:householdId/hard-rules/:hardRuleId',
         recipes: '/api/v1/households/:householdId/recipes',
         recipe: '/api/v1/households/:householdId/recipes/:recipeId',
         recipeBrainRuns: '/api/v1/households/:householdId/recipe-brain/runs',
         recipeBrainRun: '/api/v1/households/:householdId/recipe-brain/runs/:runId',
+        clinicalReview: '/api/v1/households/:householdId/clinical-review',
+        clinicalReviewRecipe: '/api/v1/households/:householdId/clinical-review/:recipeId',
+        clinicalReviewDecision: '/api/v1/households/:householdId/clinical-review/:recipeId/decision',
+        clinicalReviewAccuracyCheck: '/api/v1/households/:householdId/clinical-review/:recipeId/accuracy-check',
       },
     })
   })
@@ -68,8 +79,10 @@ export function createApp() {
   app.use('/api/v1', createHouseholdRouter())
   app.use('/api/v1', createMemberRouter())
   app.use('/api/v1', createCareRecipientRouter())
+  app.use('/api/v1', createHardRuleRouter())
   app.use('/api/v1', createRecipeRouter())
   app.use('/api/v1', createRecipeBrainRouter())
+  app.use('/api/v1', createClinicalReviewRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

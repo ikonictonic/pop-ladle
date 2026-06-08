@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/clinical-review?status=needs_review"
+method: GET
+queryParams:
+  status: needs_review
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 21000

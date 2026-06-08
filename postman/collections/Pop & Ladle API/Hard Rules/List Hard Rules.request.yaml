@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/hard-rules?careRecipientId={{careRecipientId}}&effective=true&activeOnly=false"
+method: GET
+queryParams:
+  careRecipientId: "{{careRecipientId}}"
+  effective: "true"
+  activeOnly: "false"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 17100
+

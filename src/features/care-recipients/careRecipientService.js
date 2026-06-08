@@ -5,13 +5,17 @@ import {
   normalizeUuid,
   requireHouseholdRole,
 } from '../households/householdAccess.js'
+import { CLINICAL_PROFILE_SECTION_KEYS } from '../clinical-profiles/clinicalProfileSchema.js'
 
 const CARE_RECIPIENT_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
 const CARE_RECIPIENT_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
 const CARE_RECIPIENT_STATUSES = ['active', 'archived']
+export const CARE_PROFILE_REVIEW_STATUSES = ['draft', 'ready_for_use', 'needs_review']
 const MAX_DISPLAY_NAME_LENGTH = 120
 const MAX_RELATIONSHIP_LABEL_LENGTH = 120
 const MAX_PROFILE_TEXT_LENGTH = 50000
+const MAX_PROFILE_DATA_LENGTH = 100000
+const MAX_SECTION_DATA_LENGTH = 50000
 const MIN_SORT_ORDER = 0
 const MAX_SORT_ORDER = 10000
 const DEFAULT_SORT_ORDER = 100
@@ -126,6 +130,93 @@ function normalizeJsonObject(value, fieldName) {
   return value
 }
 
+function assertJsonSize(value, fieldName, maxLength) {
+  let serialized = ''
+
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw createHttpError(400, 'INVALID_JSON_VALUE', `${fieldName} must be valid JSON.`, true)
+  }
+
+  if (serialized.length > maxLength) {
+    throw createHttpError(
+      400,
+      'JSON_VALUE_TOO_LARGE',
+      `${fieldName} must be ${maxLength} serialized characters or fewer.`,
+      true,
+    )
+  }
+
+  return value
+}
+
+function normalizeProfileData(value) {
+  if (value === undefined) return undefined
+  if (value === null) return {}
+
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw createHttpError(400, 'INVALID_PROFILE_DATA', 'profileData must be a JSON object.', true)
+  }
+
+  const unknownKeys = Object.keys(value).filter(
+    (key) => !CLINICAL_PROFILE_SECTION_KEYS.includes(key),
+  )
+
+  if (unknownKeys.length > 0) {
+    throw createHttpError(
+      400,
+      'INVALID_PROFILE_DATA_SECTION',
+      `Unknown profileData section: ${unknownKeys[0]}.`,
+      true,
+    )
+  }
+
+  return assertJsonSize(value, 'profileData', MAX_PROFILE_DATA_LENGTH)
+}
+
+function normalizeReviewStatus(value) {
+  if (value === undefined) return undefined
+
+  if (!CARE_PROFILE_REVIEW_STATUSES.includes(value)) {
+    throw createHttpError(
+      400,
+      'INVALID_REVIEW_STATUS',
+      `reviewStatus must be one of: ${CARE_PROFILE_REVIEW_STATUSES.join(', ')}.`,
+      true,
+    )
+  }
+
+  return value
+}
+
+function normalizeBoolean(value, fieldName) {
+  if (value === undefined) return undefined
+
+  if (typeof value !== 'boolean') {
+    throw createHttpError(400, 'INVALID_BOOLEAN', `${fieldName} must be a boolean.`, true)
+  }
+
+  return value
+}
+
+function normalizeCareProfileSectionKey(value) {
+  if (!CLINICAL_PROFILE_SECTION_KEYS.includes(value)) {
+    throw createHttpError(
+      400,
+      'INVALID_CARE_PROFILE_SECTION',
+      `sectionKey must be one of: ${CLINICAL_PROFILE_SECTION_KEYS.join(', ')}.`,
+      true,
+    )
+  }
+
+  return value
+}
+
+function normalizeSectionValue(value) {
+  return assertJsonSize(value ?? null, 'value', MAX_SECTION_DATA_LENGTH)
+}
+
 function normalizeProfileText(value) {
   if (value === undefined) return undefined
   if (value === null) return ''
@@ -165,6 +256,7 @@ function normalizeCreateCareRecipientPayload(payload) {
       ) ?? null,
     sortOrder: normalizeSortOrder(payload.sortOrder),
     profileText: normalizeProfileText(payload.profileText) ?? '',
+    profileData: normalizeProfileData(payload.profileData) ?? {},
     completedSections: normalizeJsonObject(payload.completedSections, 'completedSections') ?? {},
     sourceSummary: normalizeJsonObject(payload.sourceSummary, 'sourceSummary') ?? {},
   }
@@ -223,12 +315,25 @@ function normalizeUpdateCareProfilePayload(payload) {
     updates.profileText = normalizeProfileText(payload.profileText)
   }
 
+  if (hasOwn(payload, 'profileData')) {
+    updates.profileData = normalizeProfileData(payload.profileData)
+  }
+
   if (hasOwn(payload, 'completedSections')) {
     updates.completedSections = normalizeJsonObject(payload.completedSections, 'completedSections')
   }
 
   if (hasOwn(payload, 'sourceSummary')) {
     updates.sourceSummary = normalizeJsonObject(payload.sourceSummary, 'sourceSummary')
+  }
+
+  if (hasOwn(payload, 'reviewStatus')) {
+    updates.reviewStatus = normalizeReviewStatus(payload.reviewStatus)
+  }
+
+  if (normalizeBoolean(payload.markReviewed, 'markReviewed')) {
+    updates.markReviewed = true
+    updates.reviewStatus ??= 'ready_for_use'
   }
 
   if (Object.keys(updates).length === 0) {
@@ -238,6 +343,42 @@ function normalizeUpdateCareProfilePayload(payload) {
       'Provide at least one care profile field to update.',
       true,
     )
+  }
+
+  return updates
+}
+
+function normalizeUpdateCareProfileSectionPayload(payload) {
+  assertPayloadObject(payload)
+
+  if (!hasOwn(payload, 'value')) {
+    throw createHttpError(
+      400,
+      'INVALID_SECTION_VALUE',
+      'Provide the section data in a value field.',
+      true,
+    )
+  }
+
+  const updates = {
+    value: normalizeSectionValue(payload.value),
+  }
+
+  if (hasOwn(payload, 'completed')) {
+    updates.completed = normalizeBoolean(payload.completed, 'completed')
+  }
+
+  if (hasOwn(payload, 'sourceSummary')) {
+    updates.sourceSummary = normalizeJsonObject(payload.sourceSummary, 'sourceSummary')
+  }
+
+  if (hasOwn(payload, 'reviewStatus')) {
+    updates.reviewStatus = normalizeReviewStatus(payload.reviewStatus)
+  }
+
+  if (normalizeBoolean(payload.markReviewed, 'markReviewed')) {
+    updates.markReviewed = true
+    updates.reviewStatus ??= 'ready_for_use'
   }
 
   return updates
@@ -264,8 +405,12 @@ function careRecipientWithProfileProjection() {
     cr.updated_at as "updatedAt",
     cp.id as "profileId",
     cp.profile_text as "profileText",
+    cp.profile_data as "profileData",
     cp.completed_sections as "completedSections",
     cp.source_summary as "sourceSummary",
+    cp.review_status as "reviewStatus",
+    cp.reviewed_at as "reviewedAt",
+    cp.reviewed_by as "reviewedByUserId",
     cp.updated_by as "profileUpdatedByUserId",
     cp.created_at as "profileCreatedAt",
     cp.updated_at as "profileUpdatedAt"
@@ -277,8 +422,12 @@ function mapProfile(row) {
     id: row.profileId ?? null,
     careRecipientId: row.id,
     profileText: row.profileText ?? '',
+    profileData: row.profileData ?? {},
     completedSections: row.completedSections ?? {},
     sourceSummary: row.sourceSummary ?? {},
+    reviewStatus: row.reviewStatus ?? 'draft',
+    reviewedAt: row.reviewedAt ?? null,
+    reviewedByUserId: row.reviewedByUserId ?? null,
     updatedByUserId: row.profileUpdatedByUserId ?? null,
     createdAt: row.profileCreatedAt ?? null,
     updatedAt: row.profileUpdatedAt ?? null,
@@ -343,15 +492,17 @@ async function insertCareRecipient(client, householdId, userId, payload) {
       insert into care_profiles (
         care_recipient_id,
         profile_text,
+        profile_data,
         completed_sections,
         source_summary,
         updated_by
       )
-      values ($1, $2, $3, $4, $5)
+      values ($1, $2, $3, $4, $5, $6)
     `,
     [
       careRecipientId,
       payload.profileText,
+      payload.profileData,
       payload.completedSections,
       payload.sourceSummary,
       userId,
@@ -433,6 +584,11 @@ async function updateCareProfile(db, careRecipientId, userId, updates) {
     setClauses.push(`profile_text = $${values.length}`)
   }
 
+  if (hasOwn(updates, 'profileData')) {
+    values.push(updates.profileData)
+    setClauses.push(`profile_data = $${values.length}`)
+  }
+
   if (hasOwn(updates, 'completedSections')) {
     values.push(updates.completedSections)
     setClauses.push(`completed_sections = $${values.length}`)
@@ -441,6 +597,17 @@ async function updateCareProfile(db, careRecipientId, userId, updates) {
   if (hasOwn(updates, 'sourceSummary')) {
     values.push(updates.sourceSummary)
     setClauses.push(`source_summary = $${values.length}`)
+  }
+
+  if (hasOwn(updates, 'reviewStatus')) {
+    values.push(updates.reviewStatus)
+    setClauses.push(`review_status = $${values.length}`)
+  }
+
+  if (updates.markReviewed) {
+    values.push(userId)
+    setClauses.push(`reviewed_by = $${values.length}`)
+    setClauses.push('reviewed_at = now()')
   }
 
   values.push(userId)
@@ -457,8 +624,12 @@ async function updateCareProfile(db, careRecipientId, userId, updates) {
         cp.id as "profileId",
         cp.care_recipient_id as id,
         cp.profile_text as "profileText",
+        cp.profile_data as "profileData",
         cp.completed_sections as "completedSections",
         cp.source_summary as "sourceSummary",
+        cp.review_status as "reviewStatus",
+        cp.reviewed_at as "reviewedAt",
+        cp.reviewed_by as "reviewedByUserId",
         cp.updated_by as "profileUpdatedByUserId",
         cp.created_at as "profileCreatedAt",
         cp.updated_at as "profileUpdatedAt"
@@ -467,6 +638,34 @@ async function updateCareProfile(db, careRecipientId, userId, updates) {
   )
 
   return mapProfile(result.rows[0])
+}
+
+async function updateCareProfileSection(db, careRecipient, sectionKey, userId, updates) {
+  const profile = careRecipient.profile ?? {}
+  const profileData = {
+    ...(profile.profileData ?? {}),
+    [sectionKey]: updates.value,
+  }
+  const completedSections = hasOwn(updates, 'completed')
+    ? {
+        ...(profile.completedSections ?? {}),
+        [sectionKey]: updates.completed,
+      }
+    : undefined
+  const sourceSummary = hasOwn(updates, 'sourceSummary')
+    ? {
+        ...(profile.sourceSummary ?? {}),
+        [sectionKey]: updates.sourceSummary,
+      }
+    : undefined
+
+  return updateCareProfile(db, careRecipient.id, userId, {
+    profileData,
+    ...(completedSections ? { completedSections } : {}),
+    ...(sourceSummary ? { sourceSummary } : {}),
+    ...(hasOwn(updates, 'reviewStatus') ? { reviewStatus: updates.reviewStatus } : {}),
+    ...(updates.markReviewed ? { markReviewed: true } : {}),
+  })
 }
 
 export async function listCareRecipientsForCurrentUser(clerkUserId, householdId, query) {
@@ -646,6 +845,51 @@ export async function updateCareProfileForCurrentUser(
       displayName: careRecipient.displayName,
       status: careRecipient.status,
     },
+    profile,
+  }
+}
+
+export async function updateCareProfileSectionForCurrentUser(
+  clerkUserId,
+  householdId,
+  careRecipientId,
+  sectionKey,
+  payload,
+) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDbOrThrow()
+  const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
+  const normalizedSectionKey = normalizeCareProfileSectionKey(sectionKey)
+  const updates = normalizeUpdateCareProfileSectionPayload(payload)
+  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  const careRecipient = await readCareRecipientById(
+    db,
+    access.household.id,
+    normalizedCareRecipientId,
+    true,
+  )
+
+  if (!careRecipient) {
+    throw createHttpError(404, 'CARE_RECIPIENT_NOT_FOUND', 'Care recipient was not found.', true)
+  }
+
+  const profile = await updateCareProfileSection(
+    db,
+    careRecipient,
+    normalizedSectionKey,
+    user.id,
+    updates,
+  )
+
+  return {
+    household: access.household,
+    requester: access.membership,
+    careRecipient: {
+      id: careRecipient.id,
+      displayName: careRecipient.displayName,
+      status: careRecipient.status,
+    },
+    sectionKey: normalizedSectionKey,
     profile,
   }
 }

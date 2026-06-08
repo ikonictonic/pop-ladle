@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/clinical-profile-template"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 14550
+

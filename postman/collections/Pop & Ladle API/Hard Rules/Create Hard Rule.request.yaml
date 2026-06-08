@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/hard-rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "careRecipientId": "{{careRecipientId}}",
+      "ruleText": "No grapefruit",
+      "triggerTerms": ["grapefruit", "pomelo"],
+      "replacementText": "Use lemon or orange in modest amounts.",
+      "ruleType": "replace",
+      "severity": "hard",
+      "isActive": true,
+      "sortOrder": 100
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 17200
+

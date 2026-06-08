@@ -11,8 +11,32 @@ body:
       "relationshipLabel": "father",
       "sortOrder": 100,
       "profileText": "Diagnoses, medications, allergies, texture needs, appetite notes, hydration needs, meal timing, and care team instructions go here.",
+      "profileData": {
+        "diagnoses": [
+          {
+            "name": "Parkinson's disease",
+            "notes": "Texture tolerance and meal fatigue vary by day."
+          }
+        ],
+        "dailyLimits": {
+          "sodiumMg": 1500,
+          "potassiumMg": 2000,
+          "phosphorusMg": 900,
+          "fluidMl": 1800,
+          "proteinG": 55
+        },
+        "levodopaProteinTiming": {
+          "medicationWindows": ["08:00", "13:00", "18:00"],
+          "proteinWindows": ["later meal protein is better tolerated"],
+          "notes": "Avoid high-protein meals close to levodopa doses unless care team says otherwise."
+        },
+        "validatedFoods": ["soft scrambled eggs", "rice porridge", "low-sodium chicken soup"],
+        "foodsToLimit": ["garlic-heavy sauces", "large tomato portions"]
+      },
       "completedSections": {
-        "basics": true
+        "identity": true,
+        "diagnoses": true,
+        "dailyLimits": true
       },
       "sourceSummary": {
         "source": "manual"
@@ -23,4 +47,3 @@ auth:
   credentials:
     token: "{{clerkSessionToken}}"
 order: 14600
-

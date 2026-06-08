@@ -8,5 +8,6 @@ variables:
   inviteId: ""
   memberId: ""
   careRecipientId: ""
+  hardRuleId: ""
   recipeId: ""
   runId: ""

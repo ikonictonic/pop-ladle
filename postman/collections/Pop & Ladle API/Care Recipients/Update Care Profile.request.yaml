@@ -8,19 +8,48 @@ body:
   content: |-
     {
       "profileText": "Updated clinical profile text for recipe adaptation.",
+      "profileData": {
+        "identity": {
+          "preferredName": "Dad",
+          "ageRange": "older adult",
+          "relationshipToCaregiver": "father",
+          "livingContext": "Lives at home with caregiver support."
+        },
+        "dailyLimits": {
+          "sodiumMg": 1500,
+          "potassiumMg": 2000,
+          "phosphorusMg": 900,
+          "fluidMl": 1800,
+          "proteinG": 55
+        },
+        "tasteTriggers": {
+          "metallicTasteTriggers": ["garlic"],
+          "dislikedSmells": [],
+          "helpfulFlavors": ["lemon", "parsley"]
+        },
+        "textureEatingNeeds": {
+          "textureNeeds": ["soft", "moist"],
+          "chewingSwallowingNotes": "Avoid dry, crumbly textures.",
+          "tremorNeeds": ["easy utensil grip"],
+          "mealFatigueNotes": "Small portions are easier on low-energy days."
+        }
+      },
       "completedSections": {
-        "basics": true,
+        "identity": true,
         "medications": true,
-        "foodSafety": true
+        "dailyLimits": true,
+        "tasteTriggers": true,
+        "textureEatingNeeds": true
       },
       "sourceSummary": {
         "source": "manual",
         "lastReviewedBy": "household"
-      }
+      },
+      "reviewStatus": "ready_for_use",
+      "markReviewed": true
     }
 auth:
   type: bearer
   credentials:
     token: "{{clerkSessionToken}}"
 order: 14950
-

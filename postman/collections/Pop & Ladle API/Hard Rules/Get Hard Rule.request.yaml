@@ -1,0 +1,9 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/hard-rules/{{hardRuleId}}"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 17300
+

@@ -18,6 +18,7 @@ import {
   requireHouseholdRole,
 } from '../households/householdAccess.js'
 import { callModel } from './providers/index.js'
+import { runAccuracyCheckForRecipe } from '../clinical-review/accuracyCheckService.js'
 import {
   buildChairmanPrompt,
   buildPatientContext,
@@ -87,6 +88,7 @@ function normalizeRunPayload(payload) {
   return {
     sourceRecipe,
     clinicalProfileText: normalizeText(payload.clinicalProfileText),
+    clinicalProfileData: normalizeJsonObject(payload.clinicalProfileData, 'clinicalProfileData') ?? {},
     hardRules: normalizeStringArray(payload.hardRules, 'hardRules'),
     dailyLimits: normalizeJsonObject(payload.dailyLimits, 'dailyLimits') ?? {},
     nutritionSnapshot: normalizeJsonObject(payload.nutritionSnapshot, 'nutritionSnapshot'),
@@ -156,6 +158,7 @@ async function loadCareRecipientContext(db, householdId, careRecipientId) {
         cr.relationship_label as "relationshipLabel",
         cr.status,
         cp.profile_text as "profileText",
+        cp.profile_data as "profileData",
         cp.completed_sections as "completedSections",
         cp.source_summary as "sourceSummary",
         cp.updated_at as "profileUpdatedAt"
@@ -186,10 +189,128 @@ async function loadCareRecipientContext(db, householdId, careRecipientId) {
     relationshipLabel: careRecipient.relationshipLabel,
     status: careRecipient.status,
     profileText: careRecipient.profileText ?? '',
+    profileData: careRecipient.profileData ?? {},
     completedSections: careRecipient.completedSections ?? {},
     sourceSummary: careRecipient.sourceSummary ?? {},
     profileUpdatedAt: careRecipient.profileUpdatedAt ?? null,
   }
+}
+
+async function loadActiveHardRuleContext(db, householdId, careRecipientId) {
+  const result = await db.query(
+    `
+      select
+        hr.id,
+        hr.household_id as "householdId",
+        hr.care_recipient_id as "careRecipientId",
+        cr.display_name as "careRecipientDisplayName",
+        hr.rule_text as "ruleText",
+        hr.trigger_terms as "triggerTerms",
+        hr.replacement_text as "replacementText",
+        hr.rule_type as "ruleType",
+        hr.severity,
+        hr.sort_order as "sortOrder",
+        hr.updated_at as "updatedAt"
+      from clinical_hard_rules hr
+      left join care_recipients cr on cr.id = hr.care_recipient_id
+      where hr.household_id = $1
+        and hr.is_active = true
+        and (
+          hr.care_recipient_id is null
+          or ($2::uuid is not null and hr.care_recipient_id = $2)
+        )
+      order by
+        case when hr.care_recipient_id is null then 1 else 2 end,
+        hr.sort_order asc,
+        hr.created_at asc
+    `,
+    [householdId, careRecipientId],
+  )
+
+  return result.rows
+}
+
+function formatHardRuleForPrompt(rule) {
+  const scope = rule.careRecipientDisplayName
+    ? `for ${rule.careRecipientDisplayName}`
+    : 'household-wide'
+  const triggerText = rule.triggerTerms?.length
+    ? ` Triggers: ${rule.triggerTerms.join(', ')}.`
+    : ''
+  const replacementText = rule.replacementText
+    ? ` Replacement/guidance: ${rule.replacementText}.`
+    : ''
+
+  return `[${rule.severity}/${rule.ruleType}; ${scope}] ${rule.ruleText}.${triggerText}${replacementText}`
+}
+
+function createHardRuleSnapshot(rules, fallbackRules) {
+  if (rules.length > 0) {
+    return rules.map((rule) => ({
+      id: rule.id,
+      careRecipientId: rule.careRecipientId,
+      careRecipientDisplayName: rule.careRecipientDisplayName,
+      ruleText: rule.ruleText,
+      triggerTerms: rule.triggerTerms,
+      replacementText: rule.replacementText,
+      ruleType: rule.ruleType,
+      severity: rule.severity,
+      sortOrder: rule.sortOrder,
+      updatedAt: rule.updatedAt,
+      source: rule.careRecipientId ? 'care_recipient' : 'household',
+    }))
+  }
+
+  return fallbackRules.map((ruleText, index) => ({
+    id: null,
+    careRecipientId: null,
+    ruleText,
+    triggerTerms: [],
+    replacementText: '',
+    ruleType: 'avoid',
+    severity: 'hard',
+    sortOrder: index + 1,
+    updatedAt: null,
+    source: 'request_body_fallback',
+  }))
+}
+
+function maxUpdatedAt(rules) {
+  let maxTime = null
+
+  for (const rule of rules) {
+    if (!rule.updatedAt) continue
+
+    const ruleTime = new Date(rule.updatedAt).getTime()
+    if (!Number.isFinite(ruleTime)) continue
+
+    maxTime = maxTime === null ? ruleTime : Math.max(maxTime, ruleTime)
+  }
+
+  return maxTime === null ? null : new Date(maxTime).toISOString()
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '')
+}
+
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== ''),
+  )
+}
+
+function extractDailyLimitsFromProfileData(profileData = {}) {
+  const dailyLimits = profileData.dailyLimits ?? {}
+  const hydrationRules = profileData.hydrationRules ?? {}
+
+  return compactObject({
+    sodium_mg: firstDefined(dailyLimits.sodiumMg, dailyLimits.sodium_mg),
+    potassium_mg: firstDefined(dailyLimits.potassiumMg, dailyLimits.potassium_mg),
+    phosphorus_mg: firstDefined(dailyLimits.phosphorusMg, dailyLimits.phosphorus_mg),
+    protein_g: firstDefined(dailyLimits.proteinG, dailyLimits.protein_g),
+    fluid_ml: firstDefined(dailyLimits.fluidMl, dailyLimits.fluid_ml, hydrationRules.dailyGoalMl),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -293,13 +414,23 @@ async function insertRunRow(db, { householdId, careRecipientId, payload, userId,
     `
       insert into recipe_brain_runs (
         household_id, care_recipient_id, status, mode,
-        source_recipe_text, clinical_profile_text, specialist_count,
-        requested_by, started_at
+        source_recipe_text, clinical_profile_text, clinical_profile_data,
+        hard_rules_snapshot, hard_rules_updated_at_used, specialist_count, requested_by, started_at
       )
-      values ($1, $2, 'running', 'committee', $3, $4, $5, $6, now())
+      values ($1, $2, 'running', 'committee', $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, now())
       returning id
     `,
-    [householdId, careRecipientId, payload.sourceRecipe, payload.clinicalProfileText, specialistCount, userId],
+    [
+      householdId,
+      careRecipientId,
+      payload.sourceRecipe,
+      payload.clinicalProfileText,
+      JSON.stringify(payload.clinicalProfileData),
+      JSON.stringify(payload.hardRulesSnapshot),
+      payload.hardRulesUpdatedAtUsed,
+      specialistCount,
+      userId,
+    ],
   )
   return result.rows[0].id
 }
@@ -424,6 +555,22 @@ async function persistRecipe(client, { householdId, userId, runId, chairman, pay
   return recipe.rows[0]
 }
 
+// Seed the committee's verdict into the clinical-review audit history so the
+// Clinical Review queue shows the synthesis-layer decision before any human
+// override (plan: "verdict set by synthesis layer; audited").
+async function insertCommitteeReview(client, { householdId, recipeId, status, summary, runId, accuracyCheckId }) {
+  await client.query(
+    `
+      insert into recipe_clinical_reviews (
+        household_id, recipe_adaptation_id, source, status, notes,
+        recipe_brain_run_id, accuracy_check_id
+      )
+      values ($1, $2, 'committee', $3, $4, $5, $6)
+    `,
+    [householdId, recipeId, status, summary ?? null, runId, accuracyCheckId ?? null],
+  )
+}
+
 async function completeRun(client, runId, { chairman, totalInputTokens, totalOutputTokens, recipeId }) {
   await client.query(
     `
@@ -488,9 +635,27 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
     access.household.id,
     runPayload.careRecipientId,
   )
+  const activeHardRules = await loadActiveHardRuleContext(
+    db,
+    access.household.id,
+    runPayload.careRecipientId,
+  )
+  const serverHardRules = activeHardRules.map(formatHardRuleForPrompt)
+  const hardRules = serverHardRules.length > 0 ? serverHardRules : runPayload.hardRules
+  const profileDailyLimits = careRecipient
+    ? extractDailyLimitsFromProfileData(careRecipient.profileData)
+    : {}
   const effectiveRunPayload = {
     ...runPayload,
     clinicalProfileText: careRecipient ? careRecipient.profileText : runPayload.clinicalProfileText,
+    clinicalProfileData: careRecipient ? careRecipient.profileData : runPayload.clinicalProfileData,
+    hardRules,
+    dailyLimits: {
+      ...runPayload.dailyLimits,
+      ...profileDailyLimits,
+    },
+    hardRulesSnapshot: createHardRuleSnapshot(activeHardRules, runPayload.hardRules),
+    hardRulesUpdatedAtUsed: maxUpdatedAt(activeHardRules),
   }
   const { specialists, chairman } = await loadActiveRoster(db)
 
@@ -506,6 +671,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
     const contextBlock = buildPatientContext({
       careRecipient,
       clinicalProfileText: effectiveRunPayload.clinicalProfileText,
+      clinicalProfileData: effectiveRunPayload.clinicalProfileData,
       hardRules: effectiveRunPayload.hardRules,
       sourceRecipe: effectiveRunPayload.sourceRecipe,
       nutritionSnapshot: effectiveRunPayload.nutritionSnapshot,
@@ -535,6 +701,29 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
           runId,
           chairman: chairmanResult,
           payload: effectiveRunPayload,
+        })
+
+        // Deterministic accuracy check on the produced recipe, using the same
+        // clinical profile the committee saw (hard rules are loaded from the DB).
+        const { accuracyCheckId } = await runAccuracyCheckForRecipe(client, {
+          recipe: {
+            id: recipe.id,
+            source_recipe_text: effectiveRunPayload.sourceRecipe,
+            output_markdown: chairmanResult.recipe_markdown,
+            recipe_categories: effectiveRunPayload.recipeCategories,
+          },
+          householdId: access.household.id,
+          careRecipientId: effectiveRunPayload.careRecipientId,
+          clinicalProfileText: effectiveRunPayload.clinicalProfileText,
+        })
+
+        await insertCommitteeReview(client, {
+          householdId: access.household.id,
+          recipeId: recipe.id,
+          status: chairmanResult.verdict,
+          summary: chairmanResult.verdict_summary,
+          runId,
+          accuracyCheckId,
         })
       }
       await completeRun(client, runId, {
@@ -567,6 +756,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
         totalInputTokens,
         totalOutputTokens,
         saved: Boolean(recipe),
+        hardRuleCount: effectiveRunPayload.hardRulesSnapshot.length,
       },
       careRecipient: careRecipient
         ? {
@@ -611,9 +801,12 @@ export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, 
         r.status,
         r.verdict,
         r.verdict_summary as "verdictSummary",
+        r.clinical_profile_data as "clinicalProfileData",
         r.caveats,
         r.warning_items as "warningItems",
         r.clinician_flags as "clinicianFlags",
+        r.hard_rules_snapshot as "hardRulesSnapshot",
+        r.hard_rules_updated_at_used as "hardRulesUpdatedAtUsed",
         r.specialist_count as "specialistCount",
         r.total_input_tokens as "totalInputTokens",
         r.total_output_tokens as "totalOutputTokens",
@@ -695,6 +888,8 @@ export async function listRecipeBrainRunsForCurrentUser(clerkUserId, householdId
         r.status,
         r.verdict,
         r.verdict_summary as "verdictSummary",
+        jsonb_array_length(r.hard_rules_snapshot) as "hardRuleCount",
+        r.hard_rules_updated_at_used as "hardRulesUpdatedAtUsed",
         r.specialist_count as "specialistCount",
         r.recipe_adaptation_id as "recipeAdaptationId",
         r.total_input_tokens as "totalInputTokens",

@@ -1,0 +1,30 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}/clinical-profile/sections/dailyLimits"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "value": {
+        "sodiumMg": 1500,
+        "potassiumMg": 2000,
+        "phosphorusMg": 900,
+        "fluidMl": 1800,
+        "proteinG": 55
+      },
+      "completed": true,
+      "sourceSummary": {
+        "source": "care_team_instruction",
+        "note": "Entered from the current care plan."
+      },
+      "reviewStatus": "ready_for_use",
+      "markReviewed": true
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 14975
+
