@@ -1,6 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
+import { assertWithinCareRecipientLimit } from '../plans/planService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -702,6 +703,8 @@ export async function createCareRecipientForCurrentUser(clerkUserId, householdId
   const db = getDbOrThrow()
   const careRecipientPayload = normalizeCreateCareRecipientPayload(payload)
   const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  // Entitlement gate: plan care-recipient limit.
+  await assertWithinCareRecipientLimit(db, access.household.id)
   const client = await db.connect()
 
   try {

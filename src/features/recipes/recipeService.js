@@ -1,6 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
+import { assertWithinSavedRecipeCap } from '../plans/planService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -595,6 +596,8 @@ export async function createRecipeForCurrentUser(clerkUserId, householdId, paylo
   const recipePayload = normalizeCreateRecipePayload(payload)
   const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
   await requireActiveCareRecipient(db, access.household.id, recipePayload.careRecipientId)
+  // Entitlement gate: free tier caps saved recipes.
+  await assertWithinSavedRecipeCap(db, access.household.id)
   const client = await db.connect()
 
   try {

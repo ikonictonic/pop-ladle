@@ -1,6 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
+import { assertWithinHouseholdMemberLimit } from '../plans/planService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -872,6 +873,9 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
       ...createInvitePayload(updatedInvite, false),
     }
   }
+
+  // Entitlement gate: member seats (accepted members + open invites) per plan.
+  await assertWithinHouseholdMemberLimit(db, access.household.id)
 
   const invite = await createHouseholdInvite(db, access.household.id, email, role, requester.id)
 

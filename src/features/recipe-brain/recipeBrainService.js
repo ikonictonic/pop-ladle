@@ -19,6 +19,7 @@ import {
 } from '../households/householdAccess.js'
 import { callModel } from './providers/index.js'
 import { runAccuracyCheckForRecipe } from '../clinical-review/accuracyCheckService.js'
+import { requireGeneratorAccess } from '../plans/planService.js'
 import {
   buildChairmanPrompt,
   buildPatientContext,
@@ -630,6 +631,8 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
 
   const runPayload = normalizeRunPayload(payload)
   const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  // Entitlement gate: generation is Solo+ only and requires good standing.
+  await requireGeneratorAccess(db, access.household.id)
   const careRecipient = await loadCareRecipientContext(
     db,
     access.household.id,

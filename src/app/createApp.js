@@ -10,6 +10,7 @@ import { createRecipeRouter } from '../features/recipes/recipeRoutes.js'
 import { createRecipeBrainRouter } from '../features/recipe-brain/recipeBrainRoutes.js'
 import { createClinicalReviewRouter } from '../features/clinical-review/clinicalReviewRoutes.js'
 import { createAuditLogRouter } from '../features/audit-log/auditLogRoutes.js'
+import { createPlanRouter } from '../features/plans/planRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 
 export function createApp() {
@@ -57,6 +58,8 @@ export function createApp() {
         clinicalReviewDecision: '/api/v1/households/:householdId/clinical-review/:recipeId/decision',
         clinicalReviewAccuracyCheck: '/api/v1/households/:householdId/clinical-review/:recipeId/accuracy-check',
         auditLog: '/api/v1/households/:householdId/audit-log',
+        plans: '/api/v1/plans',
+        householdPlan: '/api/v1/households/:householdId/plan',
       },
     })
   })
@@ -88,6 +91,7 @@ export function createApp() {
   app.use('/api/v1', createRecipeBrainRouter())
   app.use('/api/v1', createClinicalReviewRouter())
   app.use('/api/v1', createAuditLogRouter())
+  app.use('/api/v1', createPlanRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({
