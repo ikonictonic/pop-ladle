@@ -1,0 +1,3 @@
+$kind: folder
+description: Household activity trail — every admin-level change, audited.
+order: 9000

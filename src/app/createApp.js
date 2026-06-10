@@ -9,6 +9,8 @@ import { createMemberRouter } from '../features/members/memberRoutes.js'
 import { createRecipeRouter } from '../features/recipes/recipeRoutes.js'
 import { createRecipeBrainRouter } from '../features/recipe-brain/recipeBrainRoutes.js'
 import { createClinicalReviewRouter } from '../features/clinical-review/clinicalReviewRoutes.js'
+import { createAuditLogRouter } from '../features/audit-log/auditLogRoutes.js'
+import { createRequestContextMiddleware } from './requestContext.js'
 
 export function createApp() {
   const app = express()
@@ -17,6 +19,7 @@ export function createApp() {
   app.disable('x-powered-by')
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
+  app.use(createRequestContextMiddleware())
   app.use(createClerkRequestMiddleware())
 
   app.get('/', (_req, res) => {
@@ -53,6 +56,7 @@ export function createApp() {
         clinicalReviewRecipe: '/api/v1/households/:householdId/clinical-review/:recipeId',
         clinicalReviewDecision: '/api/v1/households/:householdId/clinical-review/:recipeId/decision',
         clinicalReviewAccuracyCheck: '/api/v1/households/:householdId/clinical-review/:recipeId/accuracy-check',
+        auditLog: '/api/v1/households/:householdId/audit-log',
       },
     })
   })
@@ -83,6 +87,7 @@ export function createApp() {
   app.use('/api/v1', createRecipeRouter())
   app.use('/api/v1', createRecipeBrainRouter())
   app.use('/api/v1', createClinicalReviewRouter())
+  app.use('/api/v1', createAuditLogRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

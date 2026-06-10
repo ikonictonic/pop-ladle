@@ -1,5 +1,6 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -713,6 +714,15 @@ export async function createCareRecipientForCurrentUser(clerkUserId, householdId
       careRecipientPayload,
     )
 
+    await writeAuditLog(client, {
+      action: 'care_recipient.created',
+      entityType: 'care_recipient',
+      entityId: careRecipient.id,
+      actorUserId: user.id,
+      householdId: access.household.id,
+      after: { displayName: careRecipient.displayName, status: careRecipient.status },
+    })
+
     await client.query('commit')
 
     return {
@@ -778,6 +788,16 @@ export async function updateCareRecipientForCurrentUser(
     throw createHttpError(404, 'CARE_RECIPIENT_NOT_FOUND', 'Care recipient was not found.', true)
   }
 
+  await writeAuditLog(db, {
+    action: 'care_recipient.updated',
+    entityType: 'care_recipient',
+    entityId: careRecipient.id,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    after: { displayName: careRecipient.displayName, status: careRecipient.status },
+    extra: { fieldsChanged: Object.keys(updates) },
+  })
+
   return {
     household: access.household,
     requester: access.membership,
@@ -837,6 +857,17 @@ export async function updateCareProfileForCurrentUser(
 
   const profile = await updateCareProfile(db, normalizedCareRecipientId, user.id, updates)
 
+  // PHI data minimization: record that the profile changed and which fields,
+  // never the clinical content itself.
+  await writeAuditLog(db, {
+    action: 'care_profile.updated',
+    entityType: 'care_profile',
+    entityId: careRecipient.id,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    extra: { fieldsChanged: Object.keys(updates) },
+  })
+
   return {
     household: access.household,
     requester: access.membership,
@@ -880,6 +911,16 @@ export async function updateCareProfileSectionForCurrentUser(
     user.id,
     updates,
   )
+
+  // PHI data minimization: record the section touched, not the clinical content.
+  await writeAuditLog(db, {
+    action: 'care_profile.section_updated',
+    entityType: 'care_profile',
+    entityId: careRecipient.id,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    extra: { sectionKey: normalizedSectionKey },
+  })
 
   return {
     household: access.household,

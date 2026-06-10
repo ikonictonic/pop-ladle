@@ -1,5 +1,6 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -740,6 +741,15 @@ export async function deleteRecipeForCurrentUser(clerkUserId, householdId, recip
   }
 
   const recipe = await markRecipeDeleted(db, access.household.id, normalizedRecipeId, user.id)
+
+  await writeAuditLog(db, {
+    action: 'recipe.deleted',
+    entityType: 'recipe_adaptation',
+    entityId: normalizedRecipeId,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    before: { title: existingRecipe.title },
+  })
 
   return {
     deleted: true,

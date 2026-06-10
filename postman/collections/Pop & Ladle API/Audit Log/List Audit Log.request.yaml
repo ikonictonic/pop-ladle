@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/audit-log?limit=50"
+method: GET
+queryParams:
+  limit: "50"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 22000

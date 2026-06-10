@@ -9,6 +9,7 @@
 
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -218,7 +219,7 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
 
   const recipeResult = await db.query(
     `
-      select id, version_number as "versionNumber"
+      select id, version_number as "versionNumber", clinical_review_status as "clinicalReviewStatus"
       from recipe_adaptations
       where id = $1 and household_id = $2 and deleted_at is null
       limit 1
@@ -273,6 +274,17 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
         user.id, recipe.versionNumber,
       ],
     )
+
+    await writeAuditLog(client, {
+      action: 'clinical_review.decision',
+      entityType: 'recipe_adaptation',
+      entityId: normalizedRecipeId,
+      actorUserId: user.id,
+      householdId: access.household.id,
+      before: { clinicalReviewStatus: recipe.clinicalReviewStatus },
+      after: { clinicalReviewStatus: decision.status, caveats: decision.caveats },
+      reason: decision.notes,
+    })
 
     await client.query('commit')
 

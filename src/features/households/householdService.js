@@ -1,5 +1,6 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 
 const DEFAULT_HOUSEHOLD_NAME = 'Pop & Ladle Household'
 const MAX_HOUSEHOLD_NAME_LENGTH = 120
@@ -268,6 +269,15 @@ export async function createHouseholdForCurrentUser(clerkUserId, payload = {}) {
     const household = await createHousehold(client, owner, name)
     const membership = await createOwnerMembership(client, household, owner)
     const entitlement = await ensureHouseholdEntitlement(client, household, owner)
+
+    await writeAuditLog(client, {
+      action: 'household.created',
+      entityType: 'household',
+      entityId: household.id,
+      actorUserId: owner.id,
+      householdId: household.id,
+      after: { name: household.name, planTier: entitlement?.planTier ?? 'free' },
+    })
 
     await client.query('commit')
 

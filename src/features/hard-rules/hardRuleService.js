@@ -1,5 +1,6 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -474,6 +475,20 @@ export async function createHardRuleForCurrentUser(clerkUserId, householdId, pay
 
   const hardRule = await insertHardRule(db, access.household.id, user.id, hardRulePayload)
 
+  await writeAuditLog(db, {
+    action: 'hard_rule.created',
+    entityType: 'clinical_hard_rule',
+    entityId: hardRule.id,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    after: {
+      ruleText: hardRule.ruleText,
+      ruleType: hardRule.ruleType,
+      severity: hardRule.severity,
+      triggerTerms: hardRule.triggerTerms,
+    },
+  })
+
   return {
     household: access.household,
     requester: access.membership,
@@ -508,6 +523,7 @@ export async function updateHardRuleForCurrentUser(clerkUserId, householdId, har
 
   await requireActiveCareRecipient(db, access.household.id, updates.careRecipientId)
 
+  const existingHardRule = await readHardRuleById(db, access.household.id, normalizedHardRuleId)
   const hardRule = await updateHardRule(
     db,
     access.household.id,
@@ -519,6 +535,30 @@ export async function updateHardRuleForCurrentUser(clerkUserId, householdId, har
   if (!hardRule) {
     throw createHttpError(404, 'HARD_RULE_NOT_FOUND', 'Hard rule was not found.', true)
   }
+
+  await writeAuditLog(db, {
+    action: 'hard_rule.updated',
+    entityType: 'clinical_hard_rule',
+    entityId: hardRule.id,
+    actorUserId: user.id,
+    householdId: access.household.id,
+    before: existingHardRule
+      ? {
+          ruleText: existingHardRule.ruleText,
+          ruleType: existingHardRule.ruleType,
+          severity: existingHardRule.severity,
+          triggerTerms: existingHardRule.triggerTerms,
+          isActive: existingHardRule.isActive,
+        }
+      : null,
+    after: {
+      ruleText: hardRule.ruleText,
+      ruleType: hardRule.ruleType,
+      severity: hardRule.severity,
+      triggerTerms: hardRule.triggerTerms,
+      isActive: hardRule.isActive,
+    },
+  })
 
   return {
     household: access.household,
@@ -539,6 +579,22 @@ export async function deleteHardRuleForCurrentUser(clerkUserId, householdId, har
   }
 
   const deleted = await deleteHardRule(db, access.household.id, normalizedHardRuleId)
+
+  if (deleted) {
+    await writeAuditLog(db, {
+      action: 'hard_rule.deleted',
+      entityType: 'clinical_hard_rule',
+      entityId: normalizedHardRuleId,
+      actorUserId: user.id,
+      householdId: access.household.id,
+      before: {
+        ruleText: existingHardRule.ruleText,
+        ruleType: existingHardRule.ruleType,
+        severity: existingHardRule.severity,
+        triggerTerms: existingHardRule.triggerTerms,
+      },
+    })
+  }
 
   return {
     deleted,

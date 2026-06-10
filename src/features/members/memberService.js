@@ -1,5 +1,6 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -375,6 +376,17 @@ export async function updateHouseholdMemberRoleForCurrentUser(
 
   const member = await updateMemberRole(db, normalizedMemberId, role)
 
+  await writeAuditLog(db, {
+    action: 'member.role_changed',
+    entityType: 'household_member',
+    entityId: member.membershipId,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    targetUserId: member.userId,
+    before: { role: targetMember.role },
+    after: { role: member.role },
+  })
+
   return {
     changed: true,
     household: access.household,
@@ -408,6 +420,17 @@ export async function suspendHouseholdMemberForCurrentUser(clerkUserId, househol
 
   const member = await suspendMember(db, normalizedMemberId, requester.id)
 
+  await writeAuditLog(db, {
+    action: 'member.suspended',
+    entityType: 'household_member',
+    entityId: member.membershipId,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    targetUserId: member.userId,
+    before: { status: targetMember.status },
+    after: { status: member.status },
+  })
+
   return {
     suspended: true,
     household: access.household,
@@ -440,6 +463,17 @@ export async function removeHouseholdMemberForCurrentUser(clerkUserId, household
   }
 
   const member = await removeMember(db, normalizedMemberId, requester.id)
+
+  await writeAuditLog(db, {
+    action: 'member.removed',
+    entityType: 'household_member',
+    entityId: member.membershipId,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    targetUserId: member.userId,
+    before: { status: targetMember.status, role: targetMember.role },
+    after: { status: member.status },
+  })
 
   return {
     removed: true,
@@ -821,6 +855,17 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
   if (existingInvite) {
     const updatedInvite = await updatePendingInviteRole(db, existingInvite.id, role, requester.id)
 
+    await writeAuditLog(db, {
+      action: 'invite.updated',
+      entityType: 'household_invite',
+      entityId: updatedInvite.id,
+      actorUserId: requester.id,
+      householdId: access.household.id,
+      before: { role: existingInvite.role },
+      after: { role: updatedInvite.role },
+      extra: { email },
+    })
+
     return {
       household: access.household,
       requester: access.membership,
@@ -829,6 +874,16 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
   }
 
   const invite = await createHouseholdInvite(db, access.household.id, email, role, requester.id)
+
+  await writeAuditLog(db, {
+    action: 'invite.created',
+    entityType: 'household_invite',
+    entityId: invite.id,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    after: { role: invite.role },
+    extra: { email },
+  })
 
   return {
     household: access.household,
@@ -870,6 +925,16 @@ export async function revokeHouseholdInviteForCurrentUser(clerkUserId, household
   }
 
   const revokedInvite = await markInviteRevoked(db, normalizedInviteId, requester.id)
+
+  await writeAuditLog(db, {
+    action: 'invite.revoked',
+    entityType: 'household_invite',
+    entityId: revokedInvite.id,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    before: { role: invite.role },
+    extra: { email: invite.email },
+  })
 
   return {
     revoked: true,
@@ -924,6 +989,17 @@ export async function acceptHouseholdInviteForCurrentUser(clerkUserId, payload) 
 
     const membership = await createMembershipFromInvite(client, invite, user)
     const acceptedInvite = await markInviteAccepted(client, invite.id, user.id)
+
+    await writeAuditLog(client, {
+      action: 'invite.accepted',
+      entityType: 'household_invite',
+      entityId: invite.id,
+      actorUserId: user.id,
+      householdId: invite.householdId,
+      targetUserId: user.id,
+      after: { role: membership.role, status: membership.status },
+      extra: { email: invite.email },
+    })
 
     await client.query('commit')
 
