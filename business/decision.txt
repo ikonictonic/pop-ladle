@@ -1,0 +1,9 @@
+we switched to Groq-only for production (June 11, 2026).
+
+- All 9 committee members (8 specialists + ChairwomanAI) run on groq/llama-3.3-70b-versatile.
+- Each member gets its OWN Groq API key: GROQ_API_KEY_<ROLE> in backend/.env
+  (e.g. GROQ_API_KEY_NEPHROLOGY, GROQ_API_KEY_CHAIRWOMAN) = per-member rate limits.
+- Missing per-member key falls back to the shared GROQ_API_KEY.
+- Anthropic and Gemini are kept wired in code for later use; switching a member
+  back is a Super Admin roster PATCH (/admin/roster/:roleKey), no deploy needed.
+- Keys live in env vars only, never in the database.

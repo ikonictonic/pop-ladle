@@ -6,6 +6,7 @@ import {
   listHouseholdInvitesForCurrentUser,
   listHouseholdMembersForCurrentUser,
   removeHouseholdMemberForCurrentUser,
+  resendHouseholdInviteForCurrentUser,
   revokeHouseholdInviteForCurrentUser,
   suspendHouseholdMemberForCurrentUser,
   updateHouseholdMemberRoleForCurrentUser,
@@ -84,6 +85,19 @@ export function createMemberRouter() {
     requireAuthenticatedRequest,
     async (req, res) => {
       const result = await revokeHouseholdInviteForCurrentUser(
+        req.authContext.userId,
+        req.params.householdId,
+        req.params.inviteId,
+      )
+      res.status(200).json(result)
+    },
+  )
+
+  router.post(
+    '/households/:householdId/invites/:inviteId/resend',
+    requireAuthenticatedRequest,
+    async (req, res) => {
+      const result = await resendHouseholdInviteForCurrentUser(
         req.authContext.userId,
         req.params.householdId,
         req.params.inviteId,

@@ -7,6 +7,10 @@ import {
   normalizeUuid,
   requireHouseholdRole,
 } from '../households/householdAccess.js'
+import {
+  isStorageConfigured,
+  createPresignedDownloadUrl,
+} from '../../integrations/storage/storageClient.js'
 
 const RECIPE_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
 const RECIPE_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
@@ -190,7 +194,34 @@ function normalizeCreateRecipePayload(payload) {
     generationMode: normalizeText(payload.generationMode) || 'manual',
     clinicalWarning: Boolean(payload.clinicalWarning),
     clinicalWarningItems: normalizeJsonArray(payload.clinicalWarningItems, 'clinicalWarningItems', []),
+    // Two-phase save: the generator stores an unsaved draft (saved:false) and
+    // promotes it later via PATCH. Default true preserves the single-call
+    // "create == save" behavior for existing API callers.
+    saved: payload.saved === undefined ? true : normalizeBoolean(payload.saved, 'saved'),
+    // Generation provenance (nullable, free-form).
+    promptVersion: normalizeText(payload.promptVersion) || null,
+    clinicalProfileUpdatedAtUsed: normalizeOptionalTimestamp(
+      payload.clinicalProfileUpdatedAtUsed,
+      'clinicalProfileUpdatedAtUsed',
+    ),
+    hardRulesUpdatedAtUsed: normalizeOptionalTimestamp(
+      payload.hardRulesUpdatedAtUsed,
+      'hardRulesUpdatedAtUsed',
+    ),
   }
+}
+
+function normalizeOptionalTimestamp(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null
+
+  const asString = typeof value === 'string' ? value.trim() : value
+  const time = new Date(asString).getTime()
+
+  if (Number.isNaN(time)) {
+    throw createHttpError(400, 'INVALID_TIMESTAMP', `${fieldName} must be an ISO timestamp.`, true)
+  }
+
+  return asString
 }
 
 function normalizeUpdateRecipePayload(payload) {
@@ -283,6 +314,12 @@ function normalizeUpdateRecipePayload(payload) {
     )
   }
 
+  // Promote a draft into the library (the old markRecipeAsSaved). Only `true`
+  // is meaningful; unsaving isn't a supported operation.
+  if (hasOwn(payload, 'saved')) {
+    updates.saved = normalizeBoolean(payload.saved, 'saved')
+  }
+
   if (Object.keys(updates).length === 0) {
     throw createHttpError(
       400,
@@ -305,6 +342,10 @@ function normalizeListQuery(query = {}) {
   const careRecipientId = normalizeOptionalCareRecipientId(query.careRecipientId)
   const favoritesOnly = query.favoritesOnly === 'true' || query.favoritesOnly === true
   const includeGenerated = query.includeGenerated === 'true' || query.includeGenerated === true
+  const excludeReviewStatuses = normalizeQueryArray(
+    query.excludeReviewStatuses,
+    'excludeReviewStatuses',
+  )
   const requestedLimit = Number.parseInt(query.limit ?? `${DEFAULT_LIST_LIMIT}`, 10)
 
   if (search.length > MAX_SEARCH_LENGTH) {
@@ -323,6 +364,7 @@ function normalizeListQuery(query = {}) {
     careRecipientId,
     favoritesOnly,
     includeGenerated,
+    excludeReviewStatuses: excludeReviewStatuses.length > 0 ? excludeReviewStatuses : null,
     limit: Number.isInteger(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), MAX_LIST_LIMIT)
       : DEFAULT_LIST_LIMIT,
@@ -368,6 +410,14 @@ function recipeProjection(alias = 'ra') {
     ${alias}.version_number as "versionNumber",
     ${alias}.current_version_label as "currentVersionLabel",
     ${alias}.version_history as "versionHistory",
+    ${alias}.flavor_change_log as "flavorChangeLog",
+    ${alias}.is_master_recipe as "isMasterRecipe",
+    ${alias}.accuracy_check_status as "accuracyCheckStatus",
+    ${alias}.accuracy_confidence as "accuracyConfidence",
+    ${alias}.needs_clinician_review as "needsClinicianReview",
+    ${alias}.prompt_version as "promptVersion",
+    ${alias}.clinical_profile_updated_at_used as "clinicalProfileUpdatedAtUsed",
+    ${alias}.hard_rules_updated_at_used as "hardRulesUpdatedAtUsed",
     ${alias}.created_by as "createdByUserId",
     ${alias}.updated_by as "updatedByUserId",
     ${alias}.deleted_at as "deletedAt",
@@ -406,6 +456,9 @@ async function createRecipeRequest(client, householdId, user, payload) {
 }
 
 async function insertRecipe(client, householdId, user, requestId, payload) {
+  // A draft (payload.saved === false) lands in the library only once promoted,
+  // so saved_by / saved_at stay null until then.
+  const savedBy = payload.saved ? user.id : null
   const result = await client.query(
     `
       insert into recipe_adaptations (
@@ -429,12 +482,16 @@ async function insertRecipe(client, householdId, user, requestId, payload) {
         generation_mode,
         clinical_warning,
         clinical_warning_items,
+        prompt_version,
+        clinical_profile_updated_at_used,
+        hard_rules_updated_at_used,
         created_by,
         updated_by
       )
       values (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11,
-        $12, $13, $14, $15, $16, $17, $18, $19, $10, $10
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        case when $11::uuid is null then null else now() end,
+        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $24
       )
       returning
         ${recipeProjection('recipe_adaptations')}
@@ -449,7 +506,8 @@ async function insertRecipe(client, householdId, user, requestId, payload) {
       payload.outputJson,
       payload.mealSlots,
       payload.recipeCategories,
-      user.id,
+      savedBy,
+      savedBy,
       payload.isFavorite,
       payload.originalServings,
       payload.targetServings,
@@ -459,13 +517,17 @@ async function insertRecipe(client, householdId, user, requestId, payload) {
       payload.generationMode,
       payload.clinicalWarning,
       payload.clinicalWarningItems,
+      payload.promptVersion,
+      payload.clinicalProfileUpdatedAtUsed,
+      payload.hardRulesUpdatedAtUsed,
+      user.id,
     ],
   )
 
   return result.rows[0]
 }
 
-async function readRecipeById(db, householdId, recipeId, includeDeleted = false) {
+export async function readRecipeById(db, householdId, recipeId, includeDeleted = false) {
   const result = await db.query(
     `
       select
@@ -544,6 +606,14 @@ async function updateRecipe(db, householdId, recipeId, userId, updates) {
     setClauses.push(`${columnName} = $${values.length}`)
   }
 
+  // Promote to saved: stamp saved_at/saved_by once (coalesce keeps the original
+  // save time if it's already in the library).
+  if (updates.saved === true) {
+    values.push(userId)
+    setClauses.push(`saved_by = coalesce(saved_by, $${values.length})`)
+    setClauses.push('saved_at = coalesce(saved_at, now())')
+  }
+
   values.push(userId)
   setClauses.push(`updated_by = $${values.length}`)
   setClauses.push('updated_at = now()')
@@ -596,8 +666,11 @@ export async function createRecipeForCurrentUser(clerkUserId, householdId, paylo
   const recipePayload = normalizeCreateRecipePayload(payload)
   const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
   await requireActiveCareRecipient(db, access.household.id, recipePayload.careRecipientId)
-  // Entitlement gate: free tier caps saved recipes.
-  await assertWithinSavedRecipeCap(db, access.household.id)
+  // Entitlement gate: the free tier caps saved recipes. Unsaved drafts don't
+  // count against the library, so only enforce the cap on an actual save.
+  if (recipePayload.saved) {
+    await assertWithinSavedRecipeCap(db, access.household.id)
+  }
   const client = await db.connect()
 
   try {
@@ -648,8 +721,9 @@ export async function listRecipesForCurrentUser(clerkUserId, householdId, query)
         and ($5::text[] is null or ra.recipe_categories && $5::text[])
         and ($6::uuid is null or ra.care_recipient_id = $6)
         and ($7::boolean = false or ra.is_favorite = true)
+        and ($8::text[] is null or coalesce(ra.clinical_review_status, '') <> all($8::text[]))
       order by ra.saved_at desc nulls last, ra.created_at desc
-      limit $8
+      limit $9
     `,
     [
       access.household.id,
@@ -659,6 +733,7 @@ export async function listRecipesForCurrentUser(clerkUserId, householdId, query)
       filters.recipeCategories,
       filters.careRecipientId,
       filters.favoritesOnly,
+      filters.excludeReviewStatuses,
       filters.limit,
     ],
   )
@@ -686,10 +761,24 @@ export async function getRecipeForCurrentUser(clerkUserId, householdId, recipeId
     throw createHttpError(404, 'RECIPE_NOT_FOUND', 'Recipe was not found.', true)
   }
 
+  await attachPhotoUrl(recipe)
+
   return {
     household: access.household,
     requester: access.membership,
     recipe,
+  }
+}
+
+// Private bucket: resolve a short-lived signed view URL for the response only
+// (photo_url stays null in the DB). Best-effort — a signing failure or unset
+// storage just leaves photoUrl null rather than breaking the recipe read.
+async function attachPhotoUrl(recipe) {
+  if (!recipe?.photoStoragePath || !isStorageConfigured()) return
+  try {
+    recipe.photoUrl = await createPresignedDownloadUrl({ key: recipe.photoStoragePath, expiresIn: 900 })
+  } catch (err) {
+    console.error('Failed to sign recipe photo URL', { recipeId: recipe.id, error: err?.message })
   }
 }
 
@@ -705,6 +794,16 @@ export async function updateRecipeForCurrentUser(clerkUserId, householdId, recip
   const updates = normalizeUpdateRecipePayload(payload)
   const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
   await requireActiveCareRecipient(db, access.household.id, updates.careRecipientId)
+
+  // Promoting a draft into the library counts against the free-tier cap, but
+  // only on the transition — re-saving an already-saved recipe is a no-op.
+  if (updates.saved === true) {
+    const existing = await readRecipeById(db, access.household.id, normalizedRecipeId)
+    if (existing && !existing.savedAt) {
+      await assertWithinSavedRecipeCap(db, access.household.id)
+    }
+  }
+
   const recipe = await updateRecipe(db, access.household.id, normalizedRecipeId, user.id, updates)
 
   if (!recipe) {
@@ -759,6 +858,204 @@ export async function deleteRecipeForCurrentUser(clerkUserId, householdId, recip
     household: access.household,
     requester: access.membership,
     recipe,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-place versioning: modify (push current into history, replace) / restore.
+// Read-modify-write under a row lock so concurrent edits can't clobber history.
+// ---------------------------------------------------------------------------
+
+async function readRecipeForUpdate(client, householdId, recipeId) {
+  const result = await client.query(
+    `
+      select
+        ${recipeProjection('ra')}
+      from recipe_adaptations ra
+      where ra.id = $1
+        and ra.household_id = $2
+        and ra.deleted_at is null
+      limit 1
+      for update
+    `,
+    [recipeId, householdId],
+  )
+
+  return result.rows[0] ?? null
+}
+
+function currentVersionSnapshot(recipe, fallbackLabel) {
+  return {
+    label: recipe.currentVersionLabel || fallbackLabel,
+    output_markdown: recipe.outputMarkdown,
+    created_at: recipe.updatedAt || recipe.createdAt || null,
+    created_by: recipe.updatedByUserId || recipe.savedByUserId || null,
+    version_number: recipe.versionNumber || 1,
+  }
+}
+
+export async function modifyRecipeVersionForCurrentUser(clerkUserId, householdId, recipeId, payload) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const normalizedRecipeId = normalizeRecipeId(recipeId)
+  const newOutputMarkdown = normalizeRequiredText(
+    payload.newOutputMarkdown,
+    'newOutputMarkdown',
+    'INVALID_RECIPE_OUTPUT',
+  )
+  const newVersionLabel = normalizeText(payload.newVersionLabel) || 'Modified'
+  const incomingFlavorLog = normalizeJsonArray(payload.flavorChangeLog, 'flavorChangeLog', [])
+
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const client = await db.connect()
+
+  try {
+    await client.query('begin')
+
+    const current = await readRecipeForUpdate(client, access.household.id, normalizedRecipeId)
+    if (!current) {
+      throw createHttpError(404, 'RECIPE_NOT_FOUND', 'Recipe was not found.', true)
+    }
+
+    const nextHistory = [...(current.versionHistory || []), currentVersionSnapshot(current, 'Original')]
+    const nextFlavorLog = [...(current.flavorChangeLog || []), ...incomingFlavorLog]
+    const nextTitle = parseTitleFromMarkdown(newOutputMarkdown) || current.title
+
+    const result = await client.query(
+      `
+        update recipe_adaptations
+        set
+          output_markdown = $3,
+          current_version_label = $4,
+          version_history = $5::jsonb,
+          version_number = $6,
+          flavor_change_log = $7::jsonb,
+          title = $8,
+          updated_by = $9,
+          updated_at = now()
+        where id = $1 and household_id = $2
+        returning ${recipeProjection('recipe_adaptations')}
+      `,
+      [
+        normalizedRecipeId,
+        access.household.id,
+        newOutputMarkdown,
+        newVersionLabel,
+        JSON.stringify(nextHistory),
+        (current.versionNumber || 1) + 1,
+        JSON.stringify(nextFlavorLog),
+        nextTitle,
+        user.id,
+      ],
+    )
+
+    await client.query('commit')
+
+    return {
+      household: access.household,
+      requester: access.membership,
+      recipe: result.rows[0],
+    }
+  } catch (err) {
+    try {
+      await client.query('rollback')
+    } catch {
+      // Preserve the original error from the failed transaction.
+    }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function restoreRecipeVersionForCurrentUser(clerkUserId, householdId, recipeId, payload) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const normalizedRecipeId = normalizeRecipeId(recipeId)
+  const versionIndex = Number(payload.versionIndex)
+  if (!Number.isInteger(versionIndex) || versionIndex < 0) {
+    throw createHttpError(400, 'INVALID_VERSION_INDEX', 'versionIndex must be a non-negative integer.', true)
+  }
+
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const client = await db.connect()
+
+  try {
+    await client.query('begin')
+
+    const current = await readRecipeForUpdate(client, access.household.id, normalizedRecipeId)
+    if (!current) {
+      throw createHttpError(404, 'RECIPE_NOT_FOUND', 'Recipe was not found.', true)
+    }
+
+    const history = current.versionHistory || []
+    if (versionIndex >= history.length) {
+      throw createHttpError(400, 'INVALID_VERSION_INDEX', 'No version exists at that index.', true)
+    }
+
+    const target = history[versionIndex]
+    const remaining = history.filter((_, index) => index !== versionIndex)
+    const nextHistory = [...remaining, currentVersionSnapshot(current, 'Modified')]
+    const nextTitle = parseTitleFromMarkdown(target.output_markdown) || current.title
+
+    const result = await client.query(
+      `
+        update recipe_adaptations
+        set
+          output_markdown = $3,
+          current_version_label = $4,
+          version_history = $5::jsonb,
+          title = $6,
+          updated_by = $7,
+          updated_at = now()
+        where id = $1 and household_id = $2
+        returning ${recipeProjection('recipe_adaptations')}
+      `,
+      [
+        normalizedRecipeId,
+        access.household.id,
+        target.output_markdown,
+        target.label || 'Restored',
+        JSON.stringify(nextHistory),
+        nextTitle,
+        user.id,
+      ],
+    )
+
+    await client.query('commit')
+
+    return {
+      household: access.household,
+      requester: access.membership,
+      recipe: result.rows[0],
+    }
+  } catch (err) {
+    try {
+      await client.query('rollback')
+    } catch {
+      // Preserve the original error from the failed transaction.
+    }
+    throw err
+  } finally {
+    client.release()
   }
 }
 

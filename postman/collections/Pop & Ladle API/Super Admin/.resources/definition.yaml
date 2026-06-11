@@ -1,0 +1,3 @@
+$kind: folder
+description: Internal company console — registry, comps, roster, observability, privacy workflows. Requires an internal_admin_users row.
+order: 11000

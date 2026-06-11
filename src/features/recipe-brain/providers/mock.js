@@ -1,7 +1,7 @@
 /**
  * Mock provider — deterministic, keyless. For local dev and tests so the full
  * pipeline (orchestration, persistence, verdict gate, logging) runs end-to-end
- * without real keys or token spend. Returns valid specialist/chairman envelopes.
+ * without real keys or token spend. Returns valid specialist/chairwoman envelopes.
  *
  * It is NEVER a silent fallback for a real provider: a specialist is only mocked
  * when its roster row is explicitly set to provider 'mock'.
@@ -9,7 +9,7 @@
 
 export async function callMock({ purpose, user }) {
   const content = purpose === 'chairman'
-    ? chairmanEnvelope(user)
+    ? chairwomanEnvelope(user)
     : specialistEnvelope()
 
   // Rough token estimate (~4 chars/token) so usage tallies are non-null in dev.
@@ -32,7 +32,7 @@ function specialistEnvelope() {
   })
 }
 
-function chairmanEnvelope(user) {
+function chairwomanEnvelope(user) {
   const sourceHint = typeof user === 'string' && user.includes('SOURCE RECIPE')
     ? 'Adapted from the provided source recipe.'
     : 'Adapted recipe.'

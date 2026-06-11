@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/admin/households/{{householdId}}/entitlement"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "planTier": "solo",
+      "planStatus": "comped",
+      "billingSource": "manual_comp",
+      "reason": "Founder testing household."
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 24400

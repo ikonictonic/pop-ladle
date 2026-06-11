@@ -11,3 +11,4 @@ variables:
   hardRuleId: ""
   recipeId: ""
   runId: ""
+  privacyRequestId: ""

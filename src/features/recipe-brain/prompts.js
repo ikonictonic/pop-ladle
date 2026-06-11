@@ -155,7 +155,7 @@ You are StarChefAI.` + SPECIALIST_OUTPUT_CONTRACT,
 const GENERIC_SPECIALIST = `You are a clinical care-team specialist reviewing a recipe for one older adult against the patient context. Identify risks in your area, explain why they matter for a caregiver in plain English, and give specific, practical required changes that keep the dish safe and worth eating. Medical safety is the gate; preserve cultural identity and pleasure inside the clinical guardrails.` + SPECIALIST_OUTPUT_CONTRACT
 
 // ChairwomanAI Synthesizer — the final human voice and the verdict gate.
-const CHAIRMAN_PROMPT = `You are ChairwomanAI Synthesizer, the final human voice of the care-team recipe system. You have deep working knowledge across nephrology, cardiology, primary care, oncology, hematology, neurology, orthopedics, clinical nutrition, and world-class culinary adaptation, and you understand the logic of every care-team agent.
+const CHAIRWOMAN_PROMPT = `You are ChairwomanAI Synthesizer, the final human voice of the care-team recipe system. You have deep working knowledge across nephrology, cardiology, primary care, oncology, hematology, neurology, orthopedics, clinical nutrition, and world-class culinary adaptation, and you understand the logic of every care-team agent.
 But your most important qualification is lived caregiving: you are the caregiver for two aging parents with complex health needs and no retirement savings, with two kids in sports, a husband working long hours, a full-time job, and menopause. You are tired, capable, sharp, loving, stretched, and allergic to fantasy plans. You are the person standing between the perfect care plan and Tuesday-night reality.
 Your job is to take the specialist outputs and turn them into one clear, safe, realistic, human answer. You protect patient safety, caregiver sanity, cultural food identity, clinical guardrails, budget, time, appetite, dignity, and repeatability. You are warm, direct, practical, and decisive. You turn medical review into action and simplify without dumbing down.
 
@@ -170,7 +170,7 @@ Final tradeoff priority: patient safety first; then swallowing and acute medical
 Your decision pattern: Final Verdict (Approved, Approved with Changes, or Denied); Bottom Line (one plain-English summary); Why This Decision (top safety and usability reasons); Required Changes (only what's needed to make it safe and workable); Final Caregiver-Ready Version (the actual version to cook, in practical household language); Senior Eating Notes (texture, portion, pacing, appetite, dementia, swallowing, hydration, reheating); Cultural Food Identity Notes; Budget and Time Notes (affordable, repeatable, batchable, low-friction); Care Team Flag (who should review and why).
 You are ChairwomanAI Synthesizer.`
 
-const CHAIRMAN_OUTPUT_CONTRACT = `
+const CHAIRWOMAN_OUTPUT_CONTRACT = `
 
 ---
 OUTPUT CONTRACT (required)
@@ -265,9 +265,9 @@ ${contextBlock}`
  * Build the Chairwoman's prompt: synthesis persona + patient context + all
  * specialist deliberations bundled.
  */
-export function buildChairmanPrompt(chairman, contextBlock, deliberations) {
-  const base = (chairman?.systemPrompt && chairman.systemPrompt.trim())
-    || (CHAIRMAN_PROMPT + CHAIRMAN_OUTPUT_CONTRACT)
+export function buildChairwomanPrompt(chairwoman, contextBlock, deliberations) {
+  const base = (chairwoman?.systemPrompt && chairwoman.systemPrompt.trim())
+    || (CHAIRWOMAN_PROMPT + CHAIRWOMAN_OUTPUT_CONTRACT)
   const bundled = deliberations.map((d, i) => {
     const idx = i + 1
     if (!d.ok) {
@@ -305,14 +305,14 @@ export function parseSpecialistEnvelope(rawText) {
 }
 
 /**
- * Parse the Chairman's response. Same tolerance as parseSpecialistEnvelope.
+ * Parse the Chairwoman's response. Same tolerance as parseSpecialistEnvelope.
  */
-export function parseChairmanEnvelope(rawText) {
+export function parseChairwomanEnvelope(rawText) {
   const obj = extractJsonObject(rawText)
   if (!obj) return null
   return {
     recipe_markdown: typeof obj.recipe_markdown === 'string' ? obj.recipe_markdown : '',
-    verdict: normalizeChairmanVerdict(obj.verdict),
+    verdict: normalizeChairwomanVerdict(obj.verdict),
     verdict_summary: typeof obj.verdict_summary === 'string' ? obj.verdict_summary : '',
     caveats: Array.isArray(obj.caveats) ? obj.caveats : [],
     warning_items: Array.isArray(obj.warning_items) ? obj.warning_items : [],
@@ -321,14 +321,14 @@ export function parseChairmanEnvelope(rawText) {
 }
 
 const SPECIALIST_VERDICTS = new Set(['approve', 'approve_with_caveats', 'deny'])
-const CHAIRMAN_VERDICTS = new Set(['approved', 'approved_with_caveats', 'denied'])
+const CHAIRWOMAN_VERDICTS = new Set(['approved', 'approved_with_caveats', 'denied'])
 
 function normalizeSpecialistVerdict(value) {
   return SPECIALIST_VERDICTS.has(value) ? value : 'approve_with_caveats'
 }
 
-function normalizeChairmanVerdict(value) {
-  return CHAIRMAN_VERDICTS.has(value) ? value : 'approved_with_caveats'
+function normalizeChairwomanVerdict(value) {
+  return CHAIRWOMAN_VERDICTS.has(value) ? value : 'approved_with_caveats'
 }
 
 function extractJsonObject(rawText) {

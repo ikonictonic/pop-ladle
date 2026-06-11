@@ -2,6 +2,7 @@ import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
 import { assertWithinHouseholdMemberLimit } from '../plans/planService.js'
+import { dispatchInviteEmail } from './inviteNotifications.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -867,9 +868,16 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
       extra: { email },
     })
 
+    const emailDelivery = await dispatchInviteEmail(db, {
+      invite: updatedInvite,
+      householdName: access.household.name,
+      invitedByName: requester.display_name,
+    })
+
     return {
       household: access.household,
       requester: access.membership,
+      emailDelivery,
       ...createInvitePayload(updatedInvite, false),
     }
   }
@@ -889,9 +897,16 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
     extra: { email },
   })
 
+  const emailDelivery = await dispatchInviteEmail(db, {
+    invite,
+    householdName: access.household.name,
+    invitedByName: requester.display_name,
+  })
+
   return {
     household: access.household,
     requester: access.membership,
+    emailDelivery,
     ...createInvitePayload(invite, true),
   }
 }
@@ -947,6 +962,61 @@ export async function revokeHouseholdInviteForCurrentUser(clerkUserId, household
     invite: {
       ...revokedInvite,
       invitePath: `/?invite=${revokedInvite.inviteToken}`,
+    },
+  }
+}
+
+export async function resendHouseholdInviteForCurrentUser(clerkUserId, householdId, inviteId) {
+  const requester = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  const normalizedInviteId = normalizeInviteId(inviteId)
+  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES)
+  const invite = await readInviteById(db, access.household.id, normalizedInviteId)
+
+  if (!invite) {
+    throw createHttpError(404, 'INVITE_NOT_FOUND', 'Invite was not found.', true)
+  }
+
+  if (invite.acceptedAt) {
+    throw createHttpError(409, 'INVITE_ALREADY_ACCEPTED', 'Accepted invites cannot be resent.', true)
+  }
+
+  if (invite.revokedAt) {
+    throw createHttpError(409, 'INVITE_REVOKED', 'Revoked invites cannot be resent.', true)
+  }
+
+  if (new Date(invite.expiresAt).getTime() <= Date.now()) {
+    throw createHttpError(410, 'INVITE_EXPIRED', 'This invite has expired. Create a new invite.', true)
+  }
+
+  const emailDelivery = await dispatchInviteEmail(db, {
+    invite,
+    householdName: access.household.name,
+    invitedByName: requester.display_name,
+  })
+
+  await writeAuditLog(db, {
+    action: 'invite.email_resent',
+    entityType: 'household_invite',
+    entityId: invite.id,
+    actorUserId: requester.id,
+    householdId: access.household.id,
+    after: { delivered: emailDelivery.delivered, transport: emailDelivery.transport },
+    extra: { email: invite.email },
+  })
+
+  return {
+    household: access.household,
+    requester: access.membership,
+    emailDelivery,
+    invite: {
+      ...invite,
+      invitePath: `/?invite=${invite.inviteToken}`,
     },
   }
 }

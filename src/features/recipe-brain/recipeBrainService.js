@@ -3,11 +3,11 @@
  *
  * Pipeline: validate + gate access -> load the Super-Admin-governed roster ->
  * build the shared patient context -> fan out specialists in parallel via the
- * server-side provider proxy -> Chairman synthesis -> Clinical Review verdict
+ * server-side provider proxy -> Chairwoman synthesis -> Clinical Review verdict
  * (the gate) -> persist run + deliberations + (when not denied) the recipe.
  *
  * Every upstream model call is recorded in llm_proxy_logs; every specialist and
- * the Chairman get their own run rows. Provider keys never leave the server.
+ * the Chairwoman get their own run rows. Provider keys never leave the server.
  */
 
 import { getDatabasePool } from '../../database/pool.js'
@@ -21,10 +21,10 @@ import { callModel } from './providers/index.js'
 import { runAccuracyCheckForRecipe } from '../clinical-review/accuracyCheckService.js'
 import { requireGeneratorAccess } from '../plans/planService.js'
 import {
-  buildChairmanPrompt,
+  buildChairwomanPrompt,
   buildPatientContext,
   buildSpecialistSystemPrompt,
-  parseChairmanEnvelope,
+  parseChairwomanEnvelope,
   parseSpecialistEnvelope,
 } from './prompts.js'
 
@@ -126,7 +126,7 @@ async function loadActiveRoster(db) {
   )
 
   const specialists = result.rows.filter((row) => row.kind === 'specialist')
-  const chairman = result.rows.find((row) => row.kind === 'chairman') ?? null
+  const chairwoman = result.rows.find((row) => row.kind === 'chairman') ?? null
 
   if (specialists.length === 0) {
     throw createHttpError(
@@ -136,16 +136,16 @@ async function loadActiveRoster(db) {
       true,
     )
   }
-  if (!chairman) {
+  if (!chairwoman) {
     throw createHttpError(
       422,
-      'NO_ACTIVE_CHAIRMAN',
-      'No active Chairman (synthesizer) is configured.',
+      'NO_ACTIVE_CHAIRWOMAN',
+      'No active Chairwoman (synthesizer) is configured.',
       true,
     )
   }
 
-  return { specialists, chairman }
+  return { specialists, chairwoman }
 }
 
 async function loadCareRecipientContext(db, householdId, careRecipientId) {
@@ -315,7 +315,7 @@ function extractDailyLimitsFromProfileData(profileData = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Specialist + Chairman passes
+// Specialist + Chairwoman passes
 // ---------------------------------------------------------------------------
 
 async function runSpecialist(specialist, contextBlock, signal) {
@@ -325,6 +325,7 @@ async function runSpecialist(specialist, contextBlock, signal) {
     model: specialist.model,
     system,
     user: SPECIALIST_USER_PROMPT,
+    roleKey: specialist.roleKey,
     purpose: 'specialist',
     signal,
   })
@@ -353,23 +354,24 @@ async function runSpecialist(specialist, contextBlock, signal) {
   }
 }
 
-async function runChairman(chairman, contextBlock, deliberations, signal) {
-  const { system, user } = buildChairmanPrompt(chairman, contextBlock, deliberations)
+async function runChairwoman(chairwoman, contextBlock, deliberations, signal) {
+  const { system, user } = buildChairwomanPrompt(chairwoman, contextBlock, deliberations)
   const result = await callModel({
-    provider: chairman.provider,
-    model: chairman.model,
+    provider: chairwoman.provider,
+    model: chairwoman.model,
     system,
     user,
+    roleKey: chairwoman.roleKey,
     purpose: 'chairman',
     signal,
   })
 
-  const envelope = result.ok ? parseChairmanEnvelope(result.content) : null
+  const envelope = result.ok ? parseChairwomanEnvelope(result.content) : null
   const synthesis = envelope ?? rollUpFallback(deliberations, result.content)
 
   return {
-    provider: chairman.provider,
-    model: chairman.model,
+    provider: chairwoman.provider,
+    model: chairwoman.model,
     ok: result.ok && envelope !== null,
     ...synthesis,
     rawOutput: result.content,
@@ -378,7 +380,7 @@ async function runChairman(chairman, contextBlock, deliberations, signal) {
     latencyMs: result.latencyMs,
     httpStatus: result.httpStatus,
     error: result.ok
-      ? (envelope ? null : 'Chairman returned a malformed envelope; rolled up specialist verdicts.')
+      ? (envelope ? null : 'Chairwoman returned a malformed envelope; rolled up specialist verdicts.')
       : result.error,
   }
 }
@@ -390,9 +392,9 @@ function rollUpFallback(deliberations, rawContent) {
   const verdict = hasDeny ? 'denied' : (hasCaveats ? 'approved_with_caveats' : 'approved')
 
   return {
-    recipe_markdown: rawContent || '(Chairman synthesis failed — see specialist deliberations.)',
+    recipe_markdown: rawContent || '(Chairwoman synthesis failed — see specialist deliberations.)',
     verdict,
-    verdict_summary: 'Auto-rolled-up from specialist verdicts; Chairman synthesis did not produce a valid envelope.',
+    verdict_summary: 'Auto-rolled-up from specialist verdicts; Chairwoman synthesis did not produce a valid envelope.',
     caveats: deliberations
       .filter((d) => d.verdict !== 'approve')
       .map((d) => `${d.displayName}: ${d.verdictRationale || d.error || 'no rationale'}`),
@@ -401,9 +403,9 @@ function rollUpFallback(deliberations, rawContent) {
   }
 }
 
-function sumTokens(deliberations, chairman, key) {
+function sumTokens(deliberations, chairwoman, key) {
   const specialistTotal = deliberations.reduce((acc, d) => acc + (d[key] ?? 0), 0)
-  return specialistTotal + (chairman[key] ?? 0)
+  return specialistTotal + (chairwoman[key] ?? 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +460,7 @@ async function persistSpecialistRows(client, runId, deliberations) {
   }
 }
 
-async function persistChairmanRow(client, runId, chairman) {
+async function persistChairwomanRow(client, runId, chairwoman) {
   await client.query(
     `
       insert into chairman_synthesis_runs (
@@ -469,15 +471,15 @@ async function persistChairmanRow(client, runId, chairman) {
       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15)
     `,
     [
-      runId, chairman.provider, chairman.model, chairman.ok, chairman.verdict,
-      chairman.verdict_summary, chairman.recipe_markdown, JSON.stringify(chairman.caveats),
-      JSON.stringify(chairman.warning_items), JSON.stringify(chairman.clinician_flags),
-      chairman.rawOutput, chairman.inputTokens, chairman.outputTokens, chairman.latencyMs,
-      chairman.error,
+      runId, chairwoman.provider, chairwoman.model, chairwoman.ok, chairwoman.verdict,
+      chairwoman.verdict_summary, chairwoman.recipe_markdown, JSON.stringify(chairwoman.caveats),
+      JSON.stringify(chairwoman.warning_items), JSON.stringify(chairwoman.clinician_flags),
+      chairwoman.rawOutput, chairwoman.inputTokens, chairwoman.outputTokens, chairwoman.latencyMs,
+      chairwoman.error,
     ],
   )
 
-  await insertProxyLog(client, runId, 'chairman', chairman)
+  await insertProxyLog(client, runId, 'chairman', chairwoman)
 }
 
 async function insertProxyLog(client, runId, purpose, call) {
@@ -496,7 +498,7 @@ async function insertProxyLog(client, runId, purpose, call) {
   )
 }
 
-async function persistRecipe(client, { householdId, userId, runId, chairman, payload }) {
+async function persistRecipe(client, { householdId, userId, runId, chairwoman, payload }) {
   const request = await client.query(
     `
       insert into recipe_requests (
@@ -510,13 +512,13 @@ async function persistRecipe(client, { householdId, userId, runId, chairman, pay
       householdId,
       payload.careRecipientId,
       payload.sourceRecipe,
-      chairman.provider,
-      chairman.model,
+      chairwoman.provider,
+      chairwoman.model,
       userId,
     ],
   )
 
-  const title = payload.title || parseTitleFromMarkdown(chairman.recipe_markdown) || 'Untitled Recipe'
+  const title = payload.title || parseTitleFromMarkdown(chairwoman.recipe_markdown) || 'Untitled Recipe'
 
   const recipe = await client.query(
     `
@@ -546,10 +548,10 @@ async function persistRecipe(client, { householdId, userId, runId, chairman, pay
     `,
     [
       request.rows[0].id, householdId, payload.careRecipientId, title,
-      payload.sourceRecipe, chairman.recipe_markdown, payload.mealSlots,
+      payload.sourceRecipe, chairwoman.recipe_markdown, payload.mealSlots,
       payload.recipeCategories, userId,
-      chairman.warning_items.length > 0, JSON.stringify(chairman.warning_items),
-      chairman.verdict, chairman.verdict_summary, runId,
+      chairwoman.warning_items.length > 0, JSON.stringify(chairwoman.warning_items),
+      chairwoman.verdict, chairwoman.verdict_summary, runId,
     ],
   )
 
@@ -572,7 +574,7 @@ async function insertCommitteeReview(client, { householdId, recipeId, status, su
   )
 }
 
-async function completeRun(client, runId, { chairman, totalInputTokens, totalOutputTokens, recipeId }) {
+async function completeRun(client, runId, { chairwoman, totalInputTokens, totalOutputTokens, recipeId }) {
   await client.query(
     `
       update recipe_brain_runs
@@ -590,8 +592,8 @@ async function completeRun(client, runId, { chairman, totalInputTokens, totalOut
       where id = $1
     `,
     [
-      runId, chairman.verdict, chairman.verdict_summary, JSON.stringify(chairman.caveats),
-      JSON.stringify(chairman.warning_items), JSON.stringify(chairman.clinician_flags),
+      runId, chairwoman.verdict, chairwoman.verdict_summary, JSON.stringify(chairwoman.caveats),
+      JSON.stringify(chairwoman.warning_items), JSON.stringify(chairwoman.clinician_flags),
       totalInputTokens, totalOutputTokens, recipeId,
     ],
   )
@@ -660,7 +662,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
     hardRulesSnapshot: createHardRuleSnapshot(activeHardRules, runPayload.hardRules),
     hardRulesUpdatedAtUsed: maxUpdatedAt(activeHardRules),
   }
-  const { specialists, chairman } = await loadActiveRoster(db)
+  const { specialists, chairwoman } = await loadActiveRoster(db)
 
   const runId = await insertRunRow(db, {
     householdId: access.household.id,
@@ -681,28 +683,28 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
       dailyLimits: effectiveRunPayload.dailyLimits,
     })
 
-    // Specialists in parallel; the Chairman synthesizes once all have returned.
+    // Specialists in parallel; the Chairwoman synthesizes once all have returned.
     const deliberations = await Promise.all(
       specialists.map((specialist) => runSpecialist(specialist, contextBlock, options.signal)),
     )
-    const chairmanResult = await runChairman(chairman, contextBlock, deliberations, options.signal)
+    const chairwomanResult = await runChairwoman(chairwoman, contextBlock, deliberations, options.signal)
 
-    const totalInputTokens = sumTokens(deliberations, chairmanResult, 'inputTokens')
-    const totalOutputTokens = sumTokens(deliberations, chairmanResult, 'outputTokens')
-    const shouldSave = runPayload.save && chairmanResult.verdict !== 'denied'
+    const totalInputTokens = sumTokens(deliberations, chairwomanResult, 'inputTokens')
+    const totalOutputTokens = sumTokens(deliberations, chairwomanResult, 'outputTokens')
+    const shouldSave = runPayload.save && chairwomanResult.verdict !== 'denied'
 
     const client = await db.connect()
     let recipe = null
     try {
       await client.query('begin')
       await persistSpecialistRows(client, runId, deliberations)
-      await persistChairmanRow(client, runId, chairmanResult)
+      await persistChairwomanRow(client, runId, chairwomanResult)
       if (shouldSave) {
         recipe = await persistRecipe(client, {
           householdId: access.household.id,
           userId: user.id,
           runId,
-          chairman: chairmanResult,
+          chairwoman: chairwomanResult,
           payload: effectiveRunPayload,
         })
 
@@ -712,7 +714,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
           recipe: {
             id: recipe.id,
             source_recipe_text: effectiveRunPayload.sourceRecipe,
-            output_markdown: chairmanResult.recipe_markdown,
+            output_markdown: chairwomanResult.recipe_markdown,
             recipe_categories: effectiveRunPayload.recipeCategories,
           },
           householdId: access.household.id,
@@ -723,14 +725,14 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
         await insertCommitteeReview(client, {
           householdId: access.household.id,
           recipeId: recipe.id,
-          status: chairmanResult.verdict,
-          summary: chairmanResult.verdict_summary,
+          status: chairwomanResult.verdict,
+          summary: chairwomanResult.verdict_summary,
           runId,
           accuracyCheckId,
         })
       }
       await completeRun(client, runId, {
-        chairman: chairmanResult,
+        chairwoman: chairwomanResult,
         totalInputTokens,
         totalOutputTokens,
         recipeId: recipe?.id ?? null,
@@ -750,11 +752,11 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
         id: runId,
         careRecipientId: effectiveRunPayload.careRecipientId,
         status: 'completed',
-        verdict: chairmanResult.verdict,
-        verdictSummary: chairmanResult.verdict_summary,
-        caveats: chairmanResult.caveats,
-        warningItems: chairmanResult.warning_items,
-        clinicianFlags: chairmanResult.clinician_flags,
+        verdict: chairwomanResult.verdict,
+        verdictSummary: chairwomanResult.verdict_summary,
+        caveats: chairwomanResult.caveats,
+        warningItems: chairwomanResult.warning_items,
+        clinicianFlags: chairwomanResult.clinician_flags,
         specialistCount: specialists.length,
         totalInputTokens,
         totalOutputTokens,
@@ -770,11 +772,11 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
           }
         : null,
       deliberations: deliberations.map(publicDeliberation),
-      chairman: {
-        provider: chairmanResult.provider,
-        model: chairmanResult.model,
-        ok: chairmanResult.ok,
-        error: chairmanResult.error,
+      chairwoman: {
+        provider: chairwomanResult.provider,
+        model: chairwomanResult.model,
+        ok: chairwomanResult.ok,
+        error: chairwomanResult.error,
       },
       recipe,
     }
@@ -845,7 +847,7 @@ export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, 
     [normalizedRunId],
   )
 
-  const chairmanResult = await db.query(
+  const chairwomanResult = await db.query(
     `
       select
         provider, model, ok, verdict, verdict_summary as "verdictSummary",
@@ -866,7 +868,7 @@ export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, 
     requester: access.membership,
     run,
     deliberations: specialistResult.rows,
-    chairman: chairmanResult.rows[0] ?? null,
+    chairwoman: chairwomanResult.rows[0] ?? null,
   }
 }
 

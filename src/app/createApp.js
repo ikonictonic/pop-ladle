@@ -11,6 +11,7 @@ import { createRecipeBrainRouter } from '../features/recipe-brain/recipeBrainRou
 import { createClinicalReviewRouter } from '../features/clinical-review/clinicalReviewRoutes.js'
 import { createAuditLogRouter } from '../features/audit-log/auditLogRoutes.js'
 import { createPlanRouter } from '../features/plans/planRoutes.js'
+import { createSuperAdminRouter } from '../features/super-admin/superAdminRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 
 export function createApp() {
@@ -34,12 +35,15 @@ export function createApp() {
         readiness: '/api/v1/ready',
         me: '/api/v1/me',
         households: '/api/v1/households',
+        household: '/api/v1/households/:householdId',
+        transferOwnership: '/api/v1/households/:householdId/transfer-ownership',
         householdMembers: '/api/v1/households/:householdId/members',
         updateMemberRole: '/api/v1/households/:householdId/members/:memberId/role',
         suspendMember: '/api/v1/households/:householdId/members/:memberId/suspend',
         removeMember: '/api/v1/households/:householdId/members/:memberId/remove',
         householdInvites: '/api/v1/households/:householdId/invites',
         revokeHouseholdInvite: '/api/v1/households/:householdId/invites/:inviteId/revoke',
+        resendHouseholdInvite: '/api/v1/households/:householdId/invites/:inviteId/resend',
         acceptInvite: '/api/v1/invites/accept',
         careRecipients: '/api/v1/households/:householdId/care-recipients',
         careRecipient: '/api/v1/households/:householdId/care-recipients/:careRecipientId',
@@ -51,6 +55,8 @@ export function createApp() {
         hardRule: '/api/v1/households/:householdId/hard-rules/:hardRuleId',
         recipes: '/api/v1/households/:householdId/recipes',
         recipe: '/api/v1/households/:householdId/recipes/:recipeId',
+        recipePhotoUploadUrl: '/api/v1/households/:householdId/recipes/:recipeId/photo/upload-url',
+        recipePhoto: '/api/v1/households/:householdId/recipes/:recipeId/photo',
         recipeBrainRuns: '/api/v1/households/:householdId/recipe-brain/runs',
         recipeBrainRun: '/api/v1/households/:householdId/recipe-brain/runs/:runId',
         clinicalReview: '/api/v1/households/:householdId/clinical-review',
@@ -60,6 +66,7 @@ export function createApp() {
         auditLog: '/api/v1/households/:householdId/audit-log',
         plans: '/api/v1/plans',
         householdPlan: '/api/v1/households/:householdId/plan',
+        admin: '/api/v1/admin/* (overview, users, households, roster, proxy-logs, audit-log, privacy-requests, admins)',
       },
     })
   })
@@ -92,6 +99,7 @@ export function createApp() {
   app.use('/api/v1', createClinicalReviewRouter())
   app.use('/api/v1', createAuditLogRouter())
   app.use('/api/v1', createPlanRouter())
+  app.use('/api/v1', createSuperAdminRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

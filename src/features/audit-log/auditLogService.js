@@ -43,6 +43,7 @@ export async function writeAuditLog(queryable, {
   entityType = null,
   entityId = null,
   actorUserId = null,
+  actorAdminRole = null,
   householdId = null,
   targetUserId = null,
   before = null,
@@ -61,13 +62,13 @@ export async function writeAuditLog(queryable, {
   await queryable.query(
     `
       insert into admin_audit_logs (
-        actor_user_id, household_id, target_user_id, action,
+        actor_user_id, actor_admin_role, household_id, target_user_id, action,
         entity_type, entity_id, ip_address, user_agent, metadata
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
     `,
     [
-      actorUserId, householdId, targetUserId, action,
+      actorUserId, actorAdminRole, householdId, targetUserId, action,
       entityType, entityId, ipAddress, userAgent, JSON.stringify(metadata),
     ],
   )
