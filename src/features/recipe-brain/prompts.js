@@ -178,13 +178,37 @@ Produce your full synthesis exactly as described, then return it as ONE JSON obj
 with this exact shape and nothing else — no surrounding prose, no code fence:
 
 {
-  "recipe_markdown": "the Final Caregiver-Ready Version as markdown — the actual recipe to cook, followed by '## Senior Eating Notes', '## Cultural Food Identity Notes', and '## Budget & Time Notes' sections",
+  "recipe_markdown": "the Final Caregiver-Ready Version as markdown using EXACTLY the Pop & Ladle sections listed below",
   "verdict": "approved" | "approved_with_caveats" | "denied",
   "verdict_summary": "your Bottom Line — one plain-English line",
   "caveats": ["each Required Change, verbatim and prominent"],
   "warning_items": ["senior-eating and safety watch-outs the caregiver must heed"],
   "clinician_flags": ["each Care Team Flag — who should review and why"]
 }
+
+recipe_markdown MUST use this exact section structure (these section names are parsed
+by the safety checker — do not rename them):
+
+# <Recipe Title>
+
+**SERVING SUMMARY**
+- Target servings: <N> (state the number) and original servings: <M> if known.
+
+**LOADOUT**
+| ingredient | quantity |
+|---|---|
+(one row per ingredient)
+
+**EXECUTION**
+1. Numbered, imperative cooking steps a tired caregiver can follow.
+
+**SUBSTITUTIONS**
+- <original ingredient> -> <replacement> (reason) — only ingredients actually present
+  in the source recipe; write "- none" if no substitutions were needed.
+
+## Senior Eating Notes
+## Cultural Food Identity Notes
+## Budget & Time Notes
 
 Map your Final Verdict: "Approved" -> approved, "Approved with Changes" ->
 approved_with_caveats, "Denied" -> denied. If any specialist denied, you deny. Never
@@ -201,6 +225,8 @@ export function buildPatientContext({
   sourceRecipe,
   nutritionSnapshot,
   dailyLimits,
+  targetServings = null,
+  originalServings = null,
 }) {
   const limits = dailyLimits || {}
   const limitsText = [
@@ -242,6 +268,10 @@ HARD RULES (inviolable — do not propose anything that violates these):
 ${rulesText}
 
 ${nutritionText}
+
+SERVINGS:
+- Target servings: ${targetServings ?? '(not specified — keep the source recipe servings)'}
+- Original servings: ${originalServings ?? '(detect from the source recipe if stated)'}
 
 SOURCE RECIPE (original, before adaptation):
 ${sourceRecipe}`

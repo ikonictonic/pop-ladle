@@ -99,8 +99,19 @@ function normalizeRunPayload(payload) {
     careRecipientId: payload.careRecipientId
       ? normalizeUuid(payload.careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
       : null,
+    targetServings: normalizeOptionalServings(payload.targetServings, 'targetServings'),
+    originalServings: normalizeOptionalServings(payload.originalServings, 'originalServings'),
     save: payload.save === undefined ? true : Boolean(payload.save),
   }
+}
+
+function normalizeOptionalServings(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null
+  const numberValue = Number(value)
+  if (!Number.isInteger(numberValue) || numberValue < 1 || numberValue > 50) {
+    throw createHttpError(400, 'INVALID_SERVINGS', `${fieldName} must be a positive integer (1-50).`, true)
+  }
+  return numberValue
 }
 
 // ---------------------------------------------------------------------------
@@ -527,11 +538,12 @@ async function persistRecipe(client, { householdId, userId, runId, chairwoman, p
         source_recipe_text, output_markdown, meal_slots, recipe_categories,
         saved_by, saved_at, generation_mode,
         clinical_warning, clinical_warning_items, clinical_review_status,
-        clinical_review_summary, recipe_brain_run_id, created_by, updated_by
+        clinical_review_summary, recipe_brain_run_id, target_servings,
+        original_servings, created_by, updated_by
       )
       values (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), 'committee',
-        $10, $11::jsonb, $12, $13, $14, $9, $9
+        $10, $11::jsonb, $12, $13, $14, $15, $16, $9, $9
       )
       returning
         id,
@@ -552,6 +564,7 @@ async function persistRecipe(client, { householdId, userId, runId, chairwoman, p
       payload.recipeCategories, userId,
       chairwoman.warning_items.length > 0, JSON.stringify(chairwoman.warning_items),
       chairwoman.verdict, chairwoman.verdict_summary, runId,
+      payload.targetServings, payload.originalServings,
     ],
   )
 
@@ -681,6 +694,8 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
       sourceRecipe: effectiveRunPayload.sourceRecipe,
       nutritionSnapshot: effectiveRunPayload.nutritionSnapshot,
       dailyLimits: effectiveRunPayload.dailyLimits,
+      targetServings: effectiveRunPayload.targetServings,
+      originalServings: effectiveRunPayload.originalServings,
     })
 
     // Specialists in parallel; the Chairwoman synthesizes once all have returned.
@@ -716,6 +731,8 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
             source_recipe_text: effectiveRunPayload.sourceRecipe,
             output_markdown: chairwomanResult.recipe_markdown,
             recipe_categories: effectiveRunPayload.recipeCategories,
+            target_servings: effectiveRunPayload.targetServings,
+            original_servings: effectiveRunPayload.originalServings,
           },
           householdId: access.household.id,
           careRecipientId: effectiveRunPayload.careRecipientId,
