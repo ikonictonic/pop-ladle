@@ -1,0 +1,259 @@
+PATIENT PROFILE: DAD
+
+PATIENT
+My father, mid-80s.
+
+This profile contains patient facts, care-plan limits, food preferences, and caregiver context. The application recipe audit prompt remains the governing instruction layer for recipe review, recipe correction, and final caregiver output.
+
+PRIMARY DIAGNOSES
+- Parkinson's disease, managed with carbidopa-levodopa.
+- Chronic Lymphocytic Leukemia, under active treatment with Brukinsa.
+- Chronic Kidney Disease.
+- Hyperkalemia risk. Lokelma use active.
+- Coronary artery disease, 8 cardiac stents, history of 2 heart attacks.
+- Orthostatic blood pressure instability.
+- Severe bilateral knee osteoarthritis, bone-on-bone.
+- Lumbar spinal stenosis.
+- Prostate cancer, in remission.
+- Recent severe dehydration leading to renal failure and a fall. This event drives the hydration plan.
+
+CURRENT MEDICATIONS
+- Brukinsa, zanubrutinib, for CLL.
+- Carbidopa-Levodopa for Parkinson's disease.
+- Levodopa dosing times: 6:30am, 12:00pm, 5:30pm.
+- Lamotrigine, taken at levodopa cycles.
+- Gabapentin, taken at levodopa cycles.
+- Atorvastatin, statin. Large amounts of grapefruit create medication concern.
+- Pantoprazole, PPI for gastrointestinal protection.
+- Aspirin, daily cardioprotective use.
+- Nitroglycerin, PRN for chest discomfort.
+- Lokelma, sodium zirconium cyclosilicate, for hyperkalemia. Potassium restriction is active.
+- Medication name needing clarification: caregiver listed one medication as "Medicine." Replace this with actual drug name and purpose before using it in recipe logic.
+
+ACTIVE DAILY LIMITS
+- Sodium ceiling: 2400 mg per day.
+- Potassium ceiling: 1800 mg per day.
+
+Use mg for milligrams. Avoid Mg because Mg means magnesium.
+
+PROTEIN AND LEVODOPA TIMING
+Levodopa cycles:
+- 6:30am
+- 12:00pm
+- 5:30pm
+
+Meal rhythm:
+- Breakfast around 7:15am: moderate protein.
+- Lunch around 12:45pm: substantial protein, often the day's largest protein meal.
+- Dinner around 6:15pm: balanced protein.
+
+Protein meals generally land 45 to 60 minutes after the relevant levodopa dose when appetite allows. When appetite is fragile, getting food in him takes priority.
+
+HYDRATION PLAN
+Hydration is a top priority because of the recent dehydration, renal failure, and fall.
+
+Every meal and snack pairs with a cold liquid placed on the table before the plate arrives.
+
+He strongly resists plain water as the only fluid.
+
+Accepted hydration options:
+- Coffee, preferred.
+- Diluted juice, half juice and half water.
+- Diluted tart cherry juice when potassium budget allows.
+- Diluted cranberry juice.
+- Low-sodium broth when appropriate.
+- Milk with meals when appropriate.
+- Hydrating foods such as cucumber, watermelon, berries, citrus segments, and soups, with potassium budget considered.
+
+POTASSIUM CONTEXT
+Potassium restriction is active because of CKD, hyperkalemia risk, and Lokelma use.
+
+Daily potassium ceiling: 1800 mg.
+
+Foods that require portion control or substitution based on day-level potassium budget:
+- Avocado.
+- Banana.
+- Potato.
+- Sweet potato.
+- Yam.
+- Orange or large citrus portions.
+- Spinach in volume.
+- Dried fruit.
+- Tomato paste, tomato sauce, and sun-dried tomato in volume.
+- Beans and legumes.
+- Squash.
+- Large portions of high-potassium fruits or vegetables.
+
+Lower-potassium plate structure often uses:
+- White rice.
+- Pasta.
+- Couscous.
+- Bread or tortillas.
+- Cucumber.
+- Bell pepper.
+- Green beans.
+- Lettuce.
+- Small portions of berries.
+- Carefully portioned soft fruits.
+
+SODIUM CONTEXT
+Daily sodium ceiling: 2400 mg.
+
+Sodium matters because of CKD, coronary artery disease, blood pressure volatility, and cardiac history.
+
+Foods that require caution:
+- Deli meats.
+- Cured meats.
+- Canned soups.
+- Packaged sauces.
+- Soy sauce.
+- Fish sauce.
+- Oyster sauce.
+- Bottled marinades.
+- Processed cheese.
+- Restaurant foods.
+- Large amounts of broth, even when labeled lower sodium.
+
+Preferred approach:
+- Use measured salt.
+- Use unsalted or truly low-sodium broth.
+- Use small measured amounts of high-impact sauces when they carry the dish.
+- Rebuild flavor with acid, herbs, aromatics, browning, olive oil, pan fond, and texture.
+
+PHOSPHORUS CONTEXT
+CKD creates phosphorus concern.
+
+Limit or watch:
+- Cola and dark sodas.
+- Processed cheese.
+- Processed meats.
+- Packaged baked goods with phosphate additives.
+- Large dairy portions.
+- Large whole-grain portions when phosphorus budget matters.
+
+BLEEDING AND INFECTION CONTEXT
+Brukinsa plus aspirin creates elevated bleeding concern.
+
+This affects recipe handling mostly through:
+- Food safety.
+- Clean prep.
+- Fully cooked proteins.
+- Avoiding risky raw or undercooked foods.
+- Avoiding sloppy knife work or hard-to-manage prep during caregiver fatigue.
+
+TASTE PERCEPTION
+Metallic taste risk is high because of CKD, CLL treatment, and medications.
+
+Garlic triggers metallic taste for him.
+
+Flavor approaches that work:
+- Citrus zest.
+- Lemon juice.
+- Lime juice.
+- Fresh herbs.
+- Olive oil.
+- Mushrooms when potassium budget allows.
+- Mild vinegar.
+- Modest tomato.
+- Browning and searing.
+- Warm, aromatic sauces.
+- Plastic or bamboo utensils when metallic taste is active.
+- Salt-water or baking-soda mouth rinse before meals when tolerated.
+- Slightly cooler serving temperature rather than very hot food.
+
+TEXTURE AND EATING FATIGUE
+Tremor, Parkinson's symptoms, orthopedic pain, and meal fatigue affect intake.
+
+Preferred textures:
+- Rice bowls.
+- Soft proteins.
+- Eggs.
+- Fish.
+- Ground meats.
+- Slow-cooked chicken.
+- Yogurt.
+- Soups.
+- Roasted-soft vegetables.
+- Soft fruits.
+- Bite-sized pieces.
+- Moist foods with sauce.
+
+APPETITE MODES
+Every adapted recipe needs three modes:
+- Strong appetite.
+- Neutral appetite.
+- Low appetite.
+
+Strong appetite:
+- Add calories mainly through starch, oil, sauce, or caregiver-approved sides before adding extra protein or potassium-heavy foods.
+
+Neutral appetite:
+- Use the recipe as written after adaptation.
+
+Low appetite:
+- Smaller plate.
+- Smaller visual portion.
+- Aroma-forward plating.
+- Tender protein.
+- Moist starch.
+- Hydration visible first.
+- Food that looks manageable.
+
+Aroma matters:
+- Browning.
+- Searing.
+- Toasting.
+- Fresh herbs.
+- Citrus.
+- Warm sauce.
+- Familiar comfort cues.
+
+DAILY EATING RHYTHM
+- 6:30am: wake, meds, fluid, medication cycle 1.
+- 7:15am: breakfast with moderate protein.
+- 9:30am: midmorning snack plus fluids.
+- 12:00pm: medication cycle 2.
+- 12:45pm: lunch with substantial protein.
+- 3:30pm: midafternoon snack plus fluids.
+- 5:30pm: medication cycle 3.
+- 6:15pm: dinner with balanced protein.
+- 7:00pm: optional dessert.
+
+VALIDATED FOODS HE WILL EAT
+- Eggs.
+- Greek yogurt.
+- Oatmeal.
+- Chicken bowls.
+- Fish.
+- Lean steak occasionally.
+- Shrimp, especially Argentine shrimp.
+- Rice.
+- Soups.
+- Soft fruits.
+- Berries.
+- Melon segments.
+- Cucumbers.
+- Bell peppers.
+- Mushrooms.
+- Olive oil.
+- Citrus.
+- Fresh herbs.
+- Family pizza occasionally.
+- Chicken quesadilla in a lighter form.
+- Coffee.
+- Diluted juices.
+
+FOODS TO LIMIT OR HANDLE CAREFULLY
+- Garlic, metallic-taste trigger.
+- High-potassium foods, based on the 1800 mg daily ceiling.
+- Heavy processed or cured meats.
+- High-sodium packaged foods.
+- Grapefruit in volume because of atorvastatin context.
+- Plain water as the only fluid offered.
+
+CAREGIVER GOAL
+Every adapted recipe supports strength, hydration, comfort, independence, and appetite.
+
+Recipes must be executable in a home kitchen by his wife and son.
+
+The best output is practical, flavorful, safe enough, and likely to be eaten.
