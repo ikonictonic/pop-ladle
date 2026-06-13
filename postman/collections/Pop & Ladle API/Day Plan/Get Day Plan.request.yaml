@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}/day-plan?date="
+method: GET
+queryParams:
+  date: ""
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 27000

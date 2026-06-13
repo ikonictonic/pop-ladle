@@ -1,0 +1,8 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/day-plan/{{dayPlanEntryId}}"
+method: DELETE
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 27300

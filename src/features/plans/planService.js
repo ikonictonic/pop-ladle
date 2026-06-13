@@ -147,6 +147,34 @@ export async function requireGeneratorAccess(db, householdId) {
   return context
 }
 
+/**
+ * Copying a master recipe into the household requires the `library_copy` feature
+ * (Basic and up; Free can browse but not copy) and good standing.
+ */
+export async function requireLibraryCopyAccess(db, householdId) {
+  const context = await getEntitlementContext(db, householdId)
+
+  if (!context.inGoodStanding) {
+    throw createHttpError(
+      403,
+      'PLAN_NOT_IN_GOOD_STANDING',
+      `This household's plan is ${context.entitlement.planStatus}. Restore billing to copy recipes.`,
+      true,
+    )
+  }
+
+  if (context.features.library_copy !== true) {
+    throw createHttpError(
+      403,
+      'PLAN_UPGRADE_REQUIRED',
+      'Saving recipes from the Pop & Ladle library requires the Basic plan or higher.',
+      true,
+    )
+  }
+
+  return context
+}
+
 export async function assertWithinCareRecipientLimit(db, householdId) {
   const context = await getEntitlementContext(db, householdId)
   const limit = context.limits.careRecipientLimit

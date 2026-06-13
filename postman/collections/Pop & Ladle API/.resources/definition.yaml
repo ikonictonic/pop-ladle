@@ -12,3 +12,7 @@ variables:
   recipeId: ""
   runId: ""
   privacyRequestId: ""
+  masterRecipeId: ""
+  dayPlanEntryId: ""
+  hydrationLogId: ""
+  groceryItemId: ""

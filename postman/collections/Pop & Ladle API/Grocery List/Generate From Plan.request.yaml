@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/grocery-list/generate"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "careRecipientId": "{{careRecipientId}}",
+      "from": "2026-06-15",
+      "to": "2026-06-21"
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 28100

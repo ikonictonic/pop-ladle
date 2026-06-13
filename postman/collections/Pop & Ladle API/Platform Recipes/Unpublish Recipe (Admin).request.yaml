@@ -1,0 +1,8 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/admin/recipes/{{recipeId}}/unpublish"
+method: PATCH
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 26400

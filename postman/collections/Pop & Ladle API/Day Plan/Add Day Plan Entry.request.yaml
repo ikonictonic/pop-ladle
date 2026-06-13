@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}/day-plan"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "planDate": "2026-06-15",
+      "mealSlot": "lunch",
+      "recipeId": "{{recipeId}}",
+      "notes": "Make it soft-texture; serve 30 min after levodopa."
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 27100

@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/grocery-list?careRecipientId={{careRecipientId}}"
+method: GET
+queryParams:
+  careRecipientId: "{{careRecipientId}}"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 28000

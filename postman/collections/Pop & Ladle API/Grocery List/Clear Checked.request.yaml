@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/grocery-list?careRecipientId={{careRecipientId}}&checkedOnly=true"
+method: DELETE
+queryParams:
+  careRecipientId: "{{careRecipientId}}"
+  checkedOnly: "true"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 28400

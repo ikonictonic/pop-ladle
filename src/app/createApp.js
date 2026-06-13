@@ -12,6 +12,10 @@ import { createClinicalReviewRouter } from '../features/clinical-review/clinical
 import { createAuditLogRouter } from '../features/audit-log/auditLogRoutes.js'
 import { createPlanRouter } from '../features/plans/planRoutes.js'
 import { createSuperAdminRouter } from '../features/super-admin/superAdminRoutes.js'
+import { createPlatformRecipeRouter } from '../features/platform-recipes/platformRecipeRoutes.js'
+import { createDayPlanRouter } from '../features/day-plan/dayPlanRoutes.js'
+import { createHydrationRouter } from '../features/hydration/hydrationRoutes.js'
+import { createGroceryRouter } from '../features/grocery/groceryRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 
 export function createApp() {
@@ -67,6 +71,17 @@ export function createApp() {
         plans: '/api/v1/plans',
         householdPlan: '/api/v1/households/:householdId/plan',
         admin: '/api/v1/admin/* (overview, users, households, roster, proxy-logs, audit-log, privacy-requests, admins)',
+        platformRecipes: '/api/v1/platform-recipes',
+        platformRecipe: '/api/v1/platform-recipes/:recipeId',
+        copyPlatformRecipe: '/api/v1/households/:householdId/platform-recipes/:recipeId/copy',
+        publishRecipe: '/api/v1/admin/recipes/:recipeId/publish',
+        dayPlan: '/api/v1/households/:householdId/care-recipients/:careRecipientId/day-plan',
+        dayPlanEntry: '/api/v1/households/:householdId/day-plan/:entryId',
+        hydration: '/api/v1/households/:householdId/care-recipients/:careRecipientId/hydration',
+        hydrationLog: '/api/v1/households/:householdId/hydration/:logId',
+        groceryList: '/api/v1/households/:householdId/grocery-list',
+        groceryGenerate: '/api/v1/households/:householdId/grocery-list/generate',
+        groceryItem: '/api/v1/households/:householdId/grocery-list/items/:itemId',
       },
     })
   })
@@ -100,6 +115,10 @@ export function createApp() {
   app.use('/api/v1', createAuditLogRouter())
   app.use('/api/v1', createPlanRouter())
   app.use('/api/v1', createSuperAdminRouter())
+  app.use('/api/v1', createPlatformRecipeRouter())
+  app.use('/api/v1', createDayPlanRouter())
+  app.use('/api/v1', createHydrationRouter())
+  app.use('/api/v1', createGroceryRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({
