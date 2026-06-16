@@ -30,6 +30,9 @@ export const env = Object.freeze({
   EMAIL_FROM: process.env.EMAIL_FROM ?? 'Pop & Ladle <onboarding@resend.dev>',
   // Public app origin used to build absolute invite links in emails.
   APP_BASE_URL: process.env.APP_BASE_URL ?? 'http://localhost:5173',
+  // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
+  // and localhost dev are always allowed. Set to '*' to allow any origin.
+  CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS ?? '',
   // Object storage (S3-compatible — Cloudflare R2) for recipe photos.
   // Private bucket; presigned URLs only. Unset = storage features return 503.
   S3_ENDPOINT: process.env.S3_ENDPOINT ?? '',

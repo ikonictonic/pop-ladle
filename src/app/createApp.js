@@ -17,12 +17,14 @@ import { createDayPlanRouter } from '../features/day-plan/dayPlanRoutes.js'
 import { createHydrationRouter } from '../features/hydration/hydrationRoutes.js'
 import { createGroceryRouter } from '../features/grocery/groceryRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
+import { createCorsMiddleware } from './cors.js'
 
 export function createApp() {
   const app = express()
   const startedAt = new Date()
 
   app.disable('x-powered-by')
+  app.use(createCorsMiddleware())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
   app.use(createRequestContextMiddleware())
