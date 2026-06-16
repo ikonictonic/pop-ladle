@@ -1,3 +1,4 @@
+Change for test 06162026
 we switched to Groq-only for production (June 11, 2026).
 
 - All 9 committee members (8 specialists + ChairwomanAI) run on groq/llama-3.3-70b-versatile.
