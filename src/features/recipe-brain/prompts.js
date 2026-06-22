@@ -227,6 +227,7 @@ export function buildPatientContext({
   dailyLimits,
   targetServings = null,
   originalServings = null,
+  mode = 'adapt',
 }) {
   const limits = dailyLimits || {}
   const limitsText = [
@@ -255,7 +256,23 @@ export function buildPatientContext({
 - Potassium: ${nutritionSnapshot.potassium_mg ?? '?'} mg`
     : 'NUTRITION SNAPSHOT: (not yet computed for this recipe)'
 
-  return `PATIENT CONTEXT:
+  const modeDirective = mode === 'preserve'
+    ? `GENERATION MODE: PRESERVE ORIGINAL (review-only — do NOT rewrite the dish)
+The caregiver has chosen to keep this recipe as-is. Do your full safety review and
+flag every concern, but DO NOT substitute, remove, or change any ingredient. The
+Chairwoman MUST reproduce the SOURCE RECIPE faithfully in recipe_markdown (reformatted
+into the required Pop & Ladle sections, ingredients unchanged) and write "- none" in
+the SUBSTITUTIONS section. Route every required change into caveats / warning_items /
+clinician_flags instead of editing the recipe. Set the verdict by safety: approved
+when clean, approved_with_caveats when concerns exist that the caregiver must heed,
+denied only when serving it as-is is genuinely unsafe.`
+    : `GENERATION MODE: ADAPT CLINICALLY
+Adapt the recipe to the patient context — substitute, adjust portions, and rebuild
+flavor as needed to make it safe and worth eating.`
+
+  return `${modeDirective}
+
+PATIENT CONTEXT:
 ${clinicalProfileText || '(no clinical profile set)'}
 
 STRUCTURED CLINICAL PROFILE DATA:

@@ -1,0 +1,3 @@
+$kind: folder
+description: In-app notifications — current user's inbox, unread count, mark read, dismiss.
+order: 14500

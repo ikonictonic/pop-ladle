@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/notes/{{noteId}}"
+method: PATCH
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "noteText": "Updated: ate broccoli when roasted soft.",
+      "category": "observation"
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 29300

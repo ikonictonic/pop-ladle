@@ -10,6 +10,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
+import { createNotification } from '../notifications/notificationService.js'
 import {
   createHttpError,
   normalizeUuid,
@@ -219,7 +220,8 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
 
   const recipeResult = await db.query(
     `
-      select id, version_number as "versionNumber", clinical_review_status as "clinicalReviewStatus"
+      select id, title, saved_by as "savedBy", version_number as "versionNumber",
+             clinical_review_status as "clinicalReviewStatus"
       from recipe_adaptations
       where id = $1 and household_id = $2 and deleted_at is null
       limit 1
@@ -287,6 +289,23 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
     })
 
     await client.query('commit')
+
+    // Best-effort: tell the recipe's creator the verdict. Never let a
+    // notification failure undo a committed clinical decision.
+    if (recipe.savedBy && recipe.savedBy !== user.id) {
+      try {
+        await createNotification(db, {
+          recipientUserId: recipe.savedBy,
+          householdId: access.household.id,
+          type: 'clinical_review_decision',
+          title: `Recipe ${decision.status === 'denied' ? 'denied' : 'reviewed'}: ${recipe.title}`,
+          body: `"${recipe.title}" was marked ${decision.status.replace(/_/g, ' ')}`
+            + `${decision.caveats ? ` — ${decision.caveats}` : ''}.`,
+          entityType: 'recipe_adaptation',
+          entityId: normalizedRecipeId,
+        })
+      } catch { /* notifications are best-effort */ }
+    }
 
     return {
       household: access.household,

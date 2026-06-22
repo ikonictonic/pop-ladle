@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/households/{{householdId}}/care-recipients/{{careRecipientId}}/notes"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "noteText": "Refused the broccoli side at dinner; ate the chicken and rice.",
+      "category": "refusal",
+      "relatedRecipeId": "{{recipeId}}"
+    }
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 29100

@@ -101,8 +101,20 @@ function normalizeRunPayload(payload) {
       : null,
     targetServings: normalizeOptionalServings(payload.targetServings, 'targetServings'),
     originalServings: normalizeOptionalServings(payload.originalServings, 'originalServings'),
+    mode: normalizeMode(payload.mode),
     save: payload.save === undefined ? true : Boolean(payload.save),
   }
+}
+
+const RUN_MODES = ['adapt', 'preserve']
+
+function normalizeMode(value) {
+  if (value === undefined || value === null || value === '') return 'adapt'
+  const mode = typeof value === 'string' ? value.trim() : value
+  if (!RUN_MODES.includes(mode)) {
+    throw createHttpError(400, 'INVALID_MODE', `mode must be one of: ${RUN_MODES.join(', ')}.`, true)
+  }
+  return mode
 }
 
 function normalizeOptionalServings(value, fieldName) {
@@ -542,7 +554,7 @@ async function persistRecipe(client, { householdId, userId, runId, chairwoman, p
         original_servings, created_by, updated_by
       )
       values (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), 'committee',
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $17,
         $10, $11::jsonb, $12, $13, $14, $15, $16, $9, $9
       )
       returning
@@ -565,6 +577,7 @@ async function persistRecipe(client, { householdId, userId, runId, chairwoman, p
       chairwoman.warning_items.length > 0, JSON.stringify(chairwoman.warning_items),
       chairwoman.verdict, chairwoman.verdict_summary, runId,
       payload.targetServings, payload.originalServings,
+      payload.mode === 'preserve' ? 'preserve_original' : 'committee',
     ],
   )
 
@@ -696,6 +709,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
       dailyLimits: effectiveRunPayload.dailyLimits,
       targetServings: effectiveRunPayload.targetServings,
       originalServings: effectiveRunPayload.originalServings,
+      mode: effectiveRunPayload.mode,
     })
 
     // Specialists in parallel; the Chairwoman synthesizes once all have returned.
@@ -769,6 +783,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
         id: runId,
         careRecipientId: effectiveRunPayload.careRecipientId,
         status: 'completed',
+        mode: effectiveRunPayload.mode,
         verdict: chairwomanResult.verdict,
         verdictSummary: chairwomanResult.verdict_summary,
         caveats: chairwomanResult.caveats,

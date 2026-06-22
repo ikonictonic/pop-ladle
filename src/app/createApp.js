@@ -16,6 +16,8 @@ import { createPlatformRecipeRouter } from '../features/platform-recipes/platfor
 import { createDayPlanRouter } from '../features/day-plan/dayPlanRoutes.js'
 import { createHydrationRouter } from '../features/hydration/hydrationRoutes.js'
 import { createGroceryRouter } from '../features/grocery/groceryRoutes.js'
+import { createNotesRouter } from '../features/notes/notesRoutes.js'
+import { createNotificationRouter } from '../features/notifications/notificationRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -84,6 +86,12 @@ export function createApp() {
         groceryList: '/api/v1/households/:householdId/grocery-list',
         groceryGenerate: '/api/v1/households/:householdId/grocery-list/generate',
         groceryItem: '/api/v1/households/:householdId/grocery-list/items/:itemId',
+        notes: '/api/v1/households/:householdId/care-recipients/:careRecipientId/notes',
+        note: '/api/v1/households/:householdId/notes/:noteId',
+        rejectionRouting: '/api/v1/households/:householdId/care-recipients/:careRecipientId/rejection-routing',
+        notifications: '/api/v1/notifications',
+        notificationUnreadCount: '/api/v1/notifications/unread-count',
+        notification: '/api/v1/notifications/:notificationId',
       },
     })
   })
@@ -121,6 +129,8 @@ export function createApp() {
   app.use('/api/v1', createDayPlanRouter())
   app.use('/api/v1', createHydrationRouter())
   app.use('/api/v1', createGroceryRouter())
+  app.use('/api/v1', createNotesRouter())
+  app.use('/api/v1', createNotificationRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

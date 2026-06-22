@@ -16,3 +16,5 @@ variables:
   dayPlanEntryId: ""
   hydrationLogId: ""
   groceryItemId: ""
+  noteId: ""
+  notificationId: ""

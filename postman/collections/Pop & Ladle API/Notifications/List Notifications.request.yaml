@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/notifications?unreadOnly=&limit=50"
+method: GET
+queryParams:
+  unreadOnly: ""
+  limit: "50"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 29500
