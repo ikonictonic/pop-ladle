@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/admin/recipe-review-queue?limit=50"
+method: GET
+queryParams:
+  limit: "50"
+auth:
+  type: bearer
+  credentials:
+    token: "{{clerkSessionToken}}"
+order: 26250

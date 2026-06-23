@@ -78,6 +78,7 @@ export function createApp() {
         platformRecipes: '/api/v1/platform-recipes',
         platformRecipe: '/api/v1/platform-recipes/:recipeId',
         copyPlatformRecipe: '/api/v1/households/:householdId/platform-recipes/:recipeId/copy',
+        recipeReviewQueue: '/api/v1/admin/recipe-review-queue',
         publishRecipe: '/api/v1/admin/recipes/:recipeId/publish',
         dayPlan: '/api/v1/households/:householdId/care-recipients/:careRecipientId/day-plan',
         dayPlanEntry: '/api/v1/households/:householdId/day-plan/:entryId',

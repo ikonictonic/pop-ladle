@@ -27,8 +27,8 @@ import {
   parseChairwomanEnvelope,
   parseSpecialistEnvelope,
 } from './prompts.js'
+import { GENERATE_ROLES } from './generationPolicy.js'
 
-const GENERATE_ROLES = ['owner', 'co_owner', 'caregiver']
 const SPECIALIST_USER_PROMPT =
   'Review the recipe above against the patient context. Return the JSON envelope as instructed.'
 const MAX_SOURCE_LENGTH = 20000

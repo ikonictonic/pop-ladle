@@ -4,6 +4,7 @@ import {
   copyPlatformRecipeToHousehold,
   getPlatformRecipeForCurrentUser,
   listPlatformRecipesForCurrentUser,
+  listRecipeReviewQueueForAdmin,
   publishRecipeForAdmin,
   unpublishRecipeForAdmin,
 } from './platformRecipeService.js'
@@ -35,9 +36,14 @@ export function createPlatformRecipeRouter() {
     },
   )
 
-  // Publish / unpublish — internal admin (super or clinical).
+  // Recipe Review Queue — gate-cleared recipes awaiting library acceptance.
+  router.get('/admin/recipe-review-queue', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(await listRecipeReviewQueueForAdmin(req.authContext.userId, req.query))
+  })
+
+  // Accept a cleared recipe into the library (optionally with tags) / unpublish — admin.
   router.patch('/admin/recipes/:recipeId/publish', requireAuthenticatedRequest, async (req, res) => {
-    res.status(200).json(await publishRecipeForAdmin(req.authContext.userId, req.params.recipeId))
+    res.status(200).json(await publishRecipeForAdmin(req.authContext.userId, req.params.recipeId, req.body))
   })
 
   router.patch('/admin/recipes/:recipeId/unpublish', requireAuthenticatedRequest, async (req, res) => {

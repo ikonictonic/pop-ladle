@@ -62,13 +62,88 @@ function masterProjection(alias = 'ra') {
   `
 }
 
+const REVIEW_QUEUE_STATUSES = ['approved', 'approved_with_caveats']
+const MAX_TAGS = 20
+
+function normalizeTagArray(value, field) {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value)) {
+    throw createHttpError(400, 'INVALID_TAGS', `${field} must be an array of strings.`, true)
+  }
+  const out = value.map((v) => normalizeText(v).toLowerCase()).filter(Boolean)
+  if (out.length > MAX_TAGS) {
+    throw createHttpError(400, 'INVALID_TAGS', `${field} must have ${MAX_TAGS} or fewer entries.`, true)
+  }
+  return [...new Set(out)]
+}
+
+// Tags applied when accepting a recipe into the library. Null = leave unchanged.
+function normalizeAcceptTags(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { recipeCategories: null, mealSlots: null }
+  }
+  return {
+    recipeCategories: normalizeTagArray(payload.recipeCategories, 'recipeCategories'),
+    mealSlots: normalizeTagArray(payload.mealSlots, 'mealSlots'),
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Publish / unpublish (admin)
+// Recipe Review Queue (admin) — gate-cleared recipes awaiting library acceptance
 // ---------------------------------------------------------------------------
 
-export async function publishRecipeForAdmin(clerkUserId, recipeId) {
+/**
+ * Recipes the Clinical Review Gate has cleared (approved / approved_with_caveats)
+ * but that are NOT yet master recipes — i.e. awaiting a Recipe Library Admin's
+ * acceptance into the library. This is the doctrine's "Recipe Review Queue".
+ */
+export async function listRecipeReviewQueueForAdmin(clerkUserId, query = {}) {
+  const { db, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+
+  const search = normalizeText(query.search)
+  if (search.length > MAX_SEARCH) {
+    throw createHttpError(400, 'INVALID_SEARCH', `Search must be ${MAX_SEARCH} characters or fewer.`, true)
+  }
+  const requestedLimit = Number.parseInt(query.limit ?? `${DEFAULT_LIMIT}`, 10)
+  const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), MAX_LIMIT) : DEFAULT_LIMIT
+
+  const result = await db.query(
+    `
+      select
+        ra.id, ra.title, ra.household_id as "householdId", h.name as "householdName",
+        ra.meal_slots as "mealSlots", ra.recipe_categories as "recipeCategories",
+        ra.clinical_review_status as "clinicalReviewStatus",
+        ra.clinical_review_summary as "clinicalReviewSummary",
+        ra.accuracy_check_status as "accuracyCheckStatus",
+        ra.accuracy_confidence as "accuracyConfidence",
+        ra.needs_clinician_review as "needsClinicianReview",
+        ra.photo_url as "photoUrl",
+        ra.generation_mode as "generationMode",
+        ra.clinical_reviewed_at as "clinicalReviewedAt",
+        ra.created_at as "createdAt"
+      from recipe_adaptations ra
+      join households h on h.id = ra.household_id
+      where ra.scope = 'household'
+        and ra.deleted_at is null
+        and ra.clinical_review_status = any($1::text[])
+        and ($2::text is null or ra.title ilike '%' || $2 || '%')
+      order by ra.clinical_reviewed_at desc nulls last, ra.created_at desc
+      limit $3
+    `,
+    [REVIEW_QUEUE_STATUSES, search || null, limit],
+  )
+
+  return { adminRole: admin.role, queue: result.rows }
+}
+
+// ---------------------------------------------------------------------------
+// Publish / unpublish (admin) — accept a cleared recipe into the library
+// ---------------------------------------------------------------------------
+
+export async function publishRecipeForAdmin(clerkUserId, recipeId, payload = {}) {
   const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
   const normalizedId = normalizeRecipeId(recipeId)
+  const tags = normalizeAcceptTags(payload)
 
   const existing = await db.query(
     `
@@ -96,11 +171,13 @@ export async function publishRecipeForAdmin(clerkUserId, recipeId) {
     `
       update recipe_adaptations
       set scope = 'master', is_master_recipe = true,
+          recipe_categories = coalesce($3::text[], recipe_categories),
+          meal_slots = coalesce($4::text[], meal_slots),
           published_at = now(), published_by = $2, updated_at = now()
       where id = $1
       returning ${masterProjection('recipe_adaptations')}
     `,
-    [normalizedId, user.id],
+    [normalizedId, user.id, tags.recipeCategories, tags.mealSlots],
   )
 
   await writeAuditLog(db, {
@@ -109,7 +186,12 @@ export async function publishRecipeForAdmin(clerkUserId, recipeId) {
     entityId: normalizedId,
     actorUserId: user.id,
     actorAdminRole: admin.role,
-    after: { scope: 'master', title: recipe.title },
+    after: {
+      scope: 'master',
+      title: recipe.title,
+      recipeCategories: tags.recipeCategories,
+      mealSlots: tags.mealSlots,
+    },
   })
 
   return { adminRole: admin.role, recipe: updated.rows[0] }
