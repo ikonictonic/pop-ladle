@@ -826,7 +826,11 @@ export async function deleteRecipeForCurrentUser(clerkUserId, householdId, recip
   }
 
   const normalizedRecipeId = normalizeRecipeId(recipeId)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_DELETE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_DELETE_ROLES, {
+    action: 'recipe:delete',
+    resourceType: 'recipe',
+    label: 'recipe:delete',
+  })
   const existingRecipe = await readRecipeById(db, access.household.id, normalizedRecipeId, true)
 
   if (!existingRecipe) {

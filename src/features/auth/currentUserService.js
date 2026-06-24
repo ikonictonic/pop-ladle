@@ -1,5 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getClerkClient } from './clerk.js'
+import { householdRoleId } from '../access/roleMap.js'
+import { effectiveCapabilities } from '../access/policy.js'
 
 function createHttpError(statusCode, code, message, expose = true) {
   const err = new Error(message)
@@ -170,9 +172,16 @@ export async function getCurrentUserContext(clerkUserId) {
     getInternalAdminAccess(db, appUser.id),
   ])
 
+  // Phase 5: attach the effective ABAC capability set per household so the
+  // frontend can hide what the user can't do (server still enforces).
+  const householdsWithCapabilities = households.map((h) => ({
+    ...h,
+    capabilities: effectiveCapabilities(householdRoleId(h.role)) ?? [],
+  }))
+
   return {
     user: appUser,
-    households,
+    households: householdsWithCapabilities,
     internalAdmin,
   }
 }

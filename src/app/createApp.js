@@ -157,6 +157,7 @@ export function createApp() {
       error: {
         code: err.code ?? 'INTERNAL_SERVER_ERROR',
         message: err.expose ? err.message : 'Something went wrong.',
+        ...(err.expose && err.details ? { details: err.details } : {}),
       },
     })
   })

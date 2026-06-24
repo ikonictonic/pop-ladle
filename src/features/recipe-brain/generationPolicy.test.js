@@ -111,15 +111,15 @@ test('requireGeneratorAccess: not-in-good-standing is blocked before feature che
 // the role-only or entitlement-only build would silently ship. Cheaper and more
 // durable than booting the whole service to assert behaviour.
 
-test('runRecipeBrainForCurrentUser wires the role gate then the entitlement gate', async () => {
+test('runRecipeBrainForCurrentUser wires the capability gate then the entitlement gate', async () => {
   const source = await readFile(new URL('./recipeBrainService.js', import.meta.url), 'utf8')
 
-  assert.match(source, /import \{ GENERATE_ROLES \} from '\.\/generationPolicy\.js'/)
-
-  const roleGate = source.indexOf('requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)')
+  // Phase 3 cutover: the create path is now PDP-enforced on the recipe:generate
+  // capability (the read/list paths still use the legacy GENERATE_ROLES array).
+  const capabilityGate = source.indexOf("requireHouseholdCapability(db, user.id, householdId, 'recipe:generate'")
   const entitlementGate = source.indexOf('requireGeneratorAccess(db, access.household.id)')
 
-  assert.ok(roleGate !== -1, 'create-run path must gate on GENERATE_ROLES')
+  assert.ok(capabilityGate !== -1, 'create-run path must gate on the recipe:generate capability')
   assert.ok(entitlementGate !== -1, 'create-run path must call requireGeneratorAccess')
-  assert.ok(roleGate < entitlementGate, 'role gate should run before the entitlement gate')
+  assert.ok(capabilityGate < entitlementGate, 'capability gate should run before the entitlement gate')
 })

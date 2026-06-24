@@ -10,6 +10,7 @@
     "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/database/migrate.js",
     "start": "node --env-file-if-exists=.env src/server.js",
+    "abac:compile": "node scripts/compile-abac-policy.mjs",
     "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {

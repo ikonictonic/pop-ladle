@@ -16,6 +16,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import { callModel } from './providers/index.js'
 import { runAccuracyCheckForRecipe } from '../clinical-review/accuracyCheckService.js'
@@ -28,6 +29,7 @@ import {
   parseSpecialistEnvelope,
 } from './prompts.js'
 import { GENERATE_ROLES } from './generationPolicy.js'
+import { validateRecipeText } from './recipeInputGate.js'
 
 const SPECIALIST_USER_PROMPT =
   'Review the recipe above against the patient context. Return the JSON envelope as instructed.'
@@ -74,6 +76,21 @@ function normalizeRunPayload(payload) {
       `sourceRecipe must be ${MAX_SOURCE_LENGTH} characters or fewer.`,
       true,
     )
+  }
+
+  // Token-saving pre-flight: the committee ADAPTS a pasted recipe, so block
+  // prompt-style / incomplete inputs before the roster load or the LLM proxy.
+  // Mirrors the frontend gate; the backend is canonical. See recipeInputGate.js
+  // (rules: business/recipe_text_intake_validation_rules.md).
+  const validation = validateRecipeText(sourceRecipe)
+  if (!validation.allowed) {
+    const err = createHttpError(422, 'NOT_A_VALID_RECIPE', validation.message, true)
+    err.details = {
+      reason: validation.reason,
+      missingFields: validation.missingFields,
+      careTeamDispatchAllowed: validation.careTeamDispatchAllowed,
+    }
+    throw err
   }
 
   const title = normalizeText(payload.title)
@@ -658,7 +675,12 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
   }
 
   const runPayload = normalizeRunPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  // Phase 3: the generator is the first feature cut over to PDP enforcement. The
+  // `recipe:generate` capability (matrix-derived, golden-tested = owner/co_owner/
+  // caregiver) is now the decision; Phase 2 shadow proved it equals GENERATE_ROLES.
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:generate', {
+    resourceType: 'recipe',
+  })
   // Entitlement gate: generation is Solo+ only and requires good standing.
   await requireGeneratorAccess(db, access.household.id)
   const careRecipient = await loadCareRecipientContext(
