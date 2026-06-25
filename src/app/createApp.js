@@ -18,6 +18,11 @@ import { createHydrationRouter } from '../features/hydration/hydrationRoutes.js'
 import { createGroceryRouter } from '../features/grocery/groceryRoutes.js'
 import { createNotesRouter } from '../features/notes/notesRoutes.js'
 import { createNotificationRouter } from '../features/notifications/notificationRoutes.js'
+import { createRecipeFavoriteRouter } from '../features/recipe-favorites/recipeFavoriteRoutes.js'
+import { createHouseholdSettingsRouter } from '../features/household-settings/householdSettingsRoutes.js'
+import { createTaxonomyRouter } from '../features/taxonomy/taxonomyRoutes.js'
+import { createCmsApiKeyRouter } from '../features/cms-api-keys/cmsApiKeyRoutes.js'
+import { createBetaInviteRouter } from '../features/beta-invites/betaInviteRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -44,6 +49,7 @@ export function createApp() {
         me: '/api/v1/me',
         households: '/api/v1/households',
         household: '/api/v1/households/:householdId',
+        householdSettings: '/api/v1/households/:householdId/settings',
         transferOwnership: '/api/v1/households/:householdId/transfer-ownership',
         householdMembers: '/api/v1/households/:householdId/members',
         updateMemberRole: '/api/v1/households/:householdId/members/:memberId/role',
@@ -61,8 +67,14 @@ export function createApp() {
         clinicalProfileSection: '/api/v1/households/:householdId/care-recipients/:careRecipientId/clinical-profile/sections/:sectionKey',
         hardRules: '/api/v1/households/:householdId/hard-rules',
         hardRule: '/api/v1/households/:householdId/hard-rules/:hardRuleId',
+        taxonomy: '/api/v1/households/:householdId/taxonomy',
+        taxonomyItem: '/api/v1/households/:householdId/taxonomy/:taxonomyId',
+        cmsApiKeys: '/api/v1/households/:householdId/cms-api-keys',
+        cmsApiKey: '/api/v1/households/:householdId/cms-api-keys/:keyId',
         recipes: '/api/v1/households/:householdId/recipes',
         recipe: '/api/v1/households/:householdId/recipes/:recipeId',
+        recipeFavorites: '/api/v1/households/:householdId/recipe-favorites',
+        recipeFavorite: '/api/v1/households/:householdId/recipes/:recipeId/favorite',
         recipePhotoUploadUrl: '/api/v1/households/:householdId/recipes/:recipeId/photo/upload-url',
         recipePhoto: '/api/v1/households/:householdId/recipes/:recipeId/photo',
         recipeBrainRuns: '/api/v1/households/:householdId/recipe-brain/runs',
@@ -74,7 +86,9 @@ export function createApp() {
         auditLog: '/api/v1/households/:householdId/audit-log',
         plans: '/api/v1/plans',
         householdPlan: '/api/v1/households/:householdId/plan',
-        admin: '/api/v1/admin/* (overview, users, households, roster, proxy-logs, audit-log, privacy-requests, admins)',
+        admin: '/api/v1/admin/* (overview, users, households, roster, proxy-logs, audit-log, privacy-requests, admins, beta-invites)',
+        betaInvites: '/api/v1/admin/beta-invites',
+        redeemBetaInvite: '/api/v1/beta-invites/redeem',
         platformRecipes: '/api/v1/platform-recipes',
         platformRecipe: '/api/v1/platform-recipes/:recipeId',
         copyPlatformRecipe: '/api/v1/households/:householdId/platform-recipes/:recipeId/copy',
@@ -132,6 +146,11 @@ export function createApp() {
   app.use('/api/v1', createGroceryRouter())
   app.use('/api/v1', createNotesRouter())
   app.use('/api/v1', createNotificationRouter())
+  app.use('/api/v1', createRecipeFavoriteRouter())
+  app.use('/api/v1', createHouseholdSettingsRouter())
+  app.use('/api/v1', createTaxonomyRouter())
+  app.use('/api/v1', createCmsApiKeyRouter())
+  app.use('/api/v1', createBetaInviteRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

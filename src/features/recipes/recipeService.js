@@ -595,6 +595,7 @@ async function updateRecipe(db, householdId, recipeId, userId, updates) {
     generationMode: 'generation_mode',
     clinicalWarning: 'clinical_warning',
     clinicalWarningItems: 'clinical_warning_items',
+    photoUrl: 'photo_url',
   }
   const values = [recipeId, householdId]
   const setClauses = []
@@ -604,6 +605,13 @@ async function updateRecipe(db, householdId, recipeId, userId, updates) {
 
     values.push(updates[fieldName])
     setClauses.push(`${columnName} = $${values.length}`)
+  }
+
+  // An external photo URL supersedes a stored object: clear the private-bucket
+  // key so reads return the external URL rather than a presigned storage URL.
+  // (The replaced object is left in the bucket — best-effort, same as before.)
+  if (hasOwn(updates, 'photoUrl') && updates.photoUrl) {
+    setClauses.push('photo_storage_path = null')
   }
 
   // Promote to saved: stamp saved_at/saved_by once (coalesce keeps the original
