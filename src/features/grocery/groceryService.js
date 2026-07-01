@@ -13,6 +13,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import { parseIngredients, normalizeIngredient } from '../clinical-review/engine/ingredientParser.js'
 
@@ -78,7 +79,7 @@ export async function getGroceryListForCurrentUser(clerkUserId, householdId, que
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const careRecipientId = normalizeOptionalCareRecipientId(query.careRecipientId)
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'grocery' })
   await assertCareRecipient(db, access.household.id, careRecipientId)
 
   const scope = scopeWhere(careRecipientId, 2)
@@ -125,7 +126,11 @@ export async function generateGroceryListFromPlanForCurrentUser(clerkUserId, hou
   if (days < 0) throw createHttpError(400, 'INVALID_RANGE', 'to must be on or after from.', true)
   if (days > MAX_RANGE_DAYS) throw createHttpError(400, 'RANGE_TOO_LARGE', `Range must be ${MAX_RANGE_DAYS} days or fewer.`, true)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'shopping:manage',
+    resourceType: 'grocery',
+    label: 'grocery:edit',
+  })
   await assertCareRecipient(db, access.household.id, careRecipientId)
 
   // Planned recipes in range. If a care recipient is given, only their plan;
@@ -206,7 +211,11 @@ export async function addGroceryItemForCurrentUser(clerkUserId, householdId, pay
   if (itemText.length > MAX_ITEM) throw createHttpError(400, 'INVALID_ITEM', `itemText must be ${MAX_ITEM} characters or fewer.`, true)
   const careRecipientId = normalizeOptionalCareRecipientId(payload.careRecipientId)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'shopping:manage',
+    resourceType: 'grocery',
+    label: 'grocery:edit',
+  })
   await assertCareRecipient(db, access.household.id, careRecipientId)
 
   const normalizedKey = normalizeIngredient(itemText) || itemText.toLowerCase()
@@ -256,7 +265,11 @@ export async function updateGroceryItemForCurrentUser(clerkUserId, householdId, 
     throw createHttpError(400, 'NO_ITEM_UPDATES', 'Provide checked, itemText, or position.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'shopping:manage',
+    resourceType: 'grocery',
+    label: 'grocery:edit',
+  })
 
   const values = [normalizedItemId, access.household.id]
   const setClauses = []
@@ -289,7 +302,11 @@ export async function removeGroceryItemForCurrentUser(clerkUserId, householdId, 
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedItemId = normalizeUuid(itemId, 'INVALID_ITEM_ID', 'Item id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'shopping:manage',
+    resourceType: 'grocery',
+    label: 'grocery:edit',
+  })
 
   const result = await db.query(
     `delete from grocery_list_items where id = $1 and household_id = $2 returning id`,
@@ -312,7 +329,11 @@ export async function clearGroceryListForCurrentUser(clerkUserId, householdId, q
 
   const careRecipientId = normalizeOptionalCareRecipientId(query.careRecipientId)
   const checkedOnly = query.checkedOnly === 'true' || query.checkedOnly === true
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'shopping:manage',
+    resourceType: 'grocery',
+    label: 'grocery:edit',
+  })
 
   const scope = scopeWhere(careRecipientId, 2)
   const result = await db.query(

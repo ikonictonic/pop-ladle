@@ -848,7 +848,11 @@ export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, 
   }
 
   const normalizedRunId = normalizeUuid(runId, 'INVALID_RUN_ID', 'Run id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES, {
+    action: 'view',
+    resourceType: 'recipe_brain_run',
+    label: 'recipe-brain:get-run',
+  })
 
   const runResult = await db.query(
     `
@@ -933,7 +937,11 @@ export async function listRecipeBrainRunsForCurrentUser(clerkUserId, householdId
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, GENERATE_ROLES, {
+    action: 'view',
+    resourceType: 'recipe_brain_run',
+    label: 'recipe-brain:list-runs',
+  })
   const requestedLimit = Number.parseInt(query.limit ?? '50', 10)
   const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
 

@@ -176,7 +176,11 @@ export async function runAccuracyCheckForCurrentUser(clerkUserId, householdId, r
   }
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, ACCURACY_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, ACCURACY_WRITE_ROLES, {
+    action: 'recipe:generate',
+    resourceType: 'recipe',
+    label: 'accuracy-check:run',
+  })
 
   const recipeResult = await db.query(
     `

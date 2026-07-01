@@ -313,7 +313,11 @@ export async function copyPlatformRecipeToHousehold(clerkUserId, householdId, re
     ? normalizeUuid(payload.careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
     : null
 
-  const access = await requireHouseholdRole(db, user.id, householdId, COPY_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, COPY_ROLES, {
+    action: 'copy:recipe',
+    resourceType: 'recipe',
+    label: 'platform-recipe:copy',
+  })
   // Entitlement: library copy is Basic+ and good standing; respect the saved cap.
   await requireLibraryCopyAccess(db, access.household.id)
   await assertWithinSavedRecipeCap(db, access.household.id)

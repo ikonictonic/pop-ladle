@@ -6,6 +6,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import { CLINICAL_PROFILE_SECTION_KEYS } from '../clinical-profiles/clinicalProfileSchema.js'
 
@@ -674,7 +675,7 @@ export async function listCareRecipientsForCurrentUser(clerkUserId, householdId,
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const filters = normalizeListQuery(query)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'care_recipient' })
   const result = await db.query(
     `
       select
@@ -702,7 +703,11 @@ export async function createCareRecipientForCurrentUser(clerkUserId, householdId
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const careRecipientPayload = normalizeCreateCareRecipientPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
+    action: 'care_profile:edit',
+    resourceType: 'care_recipient',
+    label: 'care-recipient:create',
+  })
   // Entitlement gate: plan care-recipient limit.
   await assertWithinCareRecipientLimit(db, access.household.id)
   const client = await db.connect()
@@ -749,7 +754,7 @@ export async function getCareRecipientForCurrentUser(clerkUserId, householdId, c
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'care_recipient' })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,
@@ -778,7 +783,11 @@ export async function updateCareRecipientForCurrentUser(
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const updates = normalizeUpdateCareRecipientPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
+    action: 'care_profile:edit',
+    resourceType: 'care_recipient',
+    label: 'care-recipient:update',
+  })
   const careRecipient = await updateCareRecipient(
     db,
     access.household.id,
@@ -812,7 +821,7 @@ export async function getCareProfileForCurrentUser(clerkUserId, householdId, car
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'care_recipient' })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,
@@ -846,7 +855,11 @@ export async function updateCareProfileForCurrentUser(
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const updates = normalizeUpdateCareProfilePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
+    action: 'care_profile:edit',
+    resourceType: 'care_recipient',
+    label: 'care-profile:update',
+  })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,
@@ -895,7 +908,11 @@ export async function updateCareProfileSectionForCurrentUser(
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const normalizedSectionKey = normalizeCareProfileSectionKey(sectionKey)
   const updates = normalizeUpdateCareProfileSectionPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
+    action: 'care_profile:edit',
+    resourceType: 'care_recipient',
+    label: 'care-profile:section-update',
+  })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,

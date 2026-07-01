@@ -3,6 +3,8 @@ import { requireAuthenticatedRequest } from '../auth/clerk.js'
 import {
   createAdminForAdmin,
   createPrivacyRequestForAdmin,
+  createRosterEntryForAdmin,
+  deleteRosterEntryForAdmin,
   getAdminOverview,
   getHouseholdForAdmin,
   getRosterForAdmin,
@@ -13,6 +15,7 @@ import {
   listProxyLogsForAdmin,
   listUsersForAdmin,
   reinstateHouseholdForAdmin,
+  setRosterEntryKeyForAdmin,
   suspendHouseholdForAdmin,
   updateAdminForAdmin,
   updateHouseholdEntitlementForAdmin,
@@ -78,6 +81,27 @@ export function createSuperAdminRouter() {
     res.status(200).json(await getRosterForAdmin(req.authContext.userId))
   })
 
+  // Create a specialist (or chairman) roster row.
+  router.post('/admin/roster', requireAuthenticatedRequest, async (req, res) => {
+    res.status(201).json(await createRosterEntryForAdmin(req.authContext.userId, req.body))
+  })
+
+  // Set a per-specialist encrypted key (keyed by the roster row UUID).
+  router.put('/admin/roster/:id/key', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(
+      await setRosterEntryKeyForAdmin(req.authContext.userId, req.params.id, req.body),
+    )
+  })
+
+  // Delete a roster row (cascades its per-specialist key). Keyed by UUID.
+  router.delete('/admin/roster/:id', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(
+      await deleteRosterEntryForAdmin(req.authContext.userId, req.params.id),
+    )
+  })
+
+  // Update chairman/specialist provider, model, prompt, etc. Keyed by role_key
+  // for backwards compatibility with the existing editor.
   router.patch('/admin/roster/:roleKey', requireAuthenticatedRequest, async (req, res) => {
     res.status(200).json(
       await updateRosterEntryForAdmin(req.authContext.userId, req.params.roleKey, req.body),

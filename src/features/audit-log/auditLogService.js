@@ -81,7 +81,11 @@ export async function listAuditLogForCurrentUser(clerkUserId, householdId, query
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, AUDIT_VIEW_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, AUDIT_VIEW_ROLES, {
+    action: 'audit:read_scoped:household',
+    resourceType: 'audit_log',
+    label: 'audit-log:read',
+  })
 
   const action = typeof query.action === 'string' && query.action.trim() ? query.action.trim() : null
   const requestedLimit = Number.parseInt(query.limit ?? `${DEFAULT_LIMIT}`, 10)

@@ -46,7 +46,7 @@ test('generator deny path AGREES (legacy denies viewer, PDP denies)', () => {
   assert.equal(r.pdpAllow, false)
 })
 
-test('recipe:delete DISAGREES on the live path (legacy allows owner, PDP denies — discrepancy #2)', () => {
+test('recipe:delete now AGREES for owner (discrepancy #2 reconciled — CSV grants owner/co_owner)', () => {
   const r = shadowCompare({
     role: 'owner',
     action: 'recipe:delete',
@@ -55,8 +55,21 @@ test('recipe:delete DISAGREES on the live path (legacy allows owner, PDP denies 
     legacyAllowed: true,
     label: 'recipe:delete',
   })
-  assert.equal(r.status, 'disagree')
+  assert.equal(r.status, 'agree')
   assert.equal(r.legacyAllowed, true)
+  assert.equal(r.pdpAllow, true)
+})
+
+test('recipe:delete stays DENIED for caregiver (matrix DENY:recipe:delete) — legacy also denies, AGREES', () => {
+  const r = shadowCompare({
+    role: 'caregiver',
+    action: 'recipe:delete',
+    scope: tenant('hh-1'),
+    resource: { type: 'recipe', scope: tenant('hh-1') },
+    legacyAllowed: false,
+    label: 'recipe:delete',
+  })
+  assert.equal(r.status, 'agree')
   assert.equal(r.pdpAllow, false)
 })
 

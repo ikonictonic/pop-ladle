@@ -5,6 +5,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 // =============================================================================
@@ -171,7 +172,7 @@ export async function listTaxonomyForCurrentUser(clerkUserId, householdId, query
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const type = normalizeType(query.type, { required: false })
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'taxonomy' })
   const result = await db.query(
     `
       select
@@ -205,7 +206,11 @@ export async function createTaxonomyForCurrentUser(clerkUserId, householdId, pay
     throw createHttpError(400, 'INVALID_TAXONOMY_NAME', 'name produces an empty slug; pick a different name.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
+    action: 'taxonomy:edit:household',
+    resourceType: 'taxonomy',
+    label: 'taxonomy:edit',
+  })
 
   let insertedId
   try {
@@ -262,7 +267,11 @@ export async function updateTaxonomyForCurrentUser(clerkUserId, householdId, tax
     throw createHttpError(400, 'NO_TAXONOMY_UPDATES', 'Provide at least one taxonomy field to update.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
+    action: 'taxonomy:edit:household',
+    resourceType: 'taxonomy',
+    label: 'taxonomy:edit',
+  })
 
   const columnByField = {
     name: 'name',
@@ -322,7 +331,11 @@ export async function deleteTaxonomyForCurrentUser(clerkUserId, householdId, tax
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedId = normalizeTaxonomyId(taxonomyId)
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
+    action: 'taxonomy:edit:household',
+    resourceType: 'taxonomy',
+    label: 'taxonomy:edit',
+  })
   const existing = await readTaxonomyById(db, access.household.id, normalizedId)
 
   if (!existing) {
@@ -361,7 +374,7 @@ export async function getTaxonomyUsageForCurrentUser(clerkUserId, householdId, q
     throw createHttpError(400, 'INVALID_TAXONOMY_SLUG', 'slug is required.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'taxonomy' })
   // type is whitelist-validated above, so the column name is one of two literals.
   const column = type === 'meal_slot' ? 'meal_slots' : 'recipe_categories'
   const result = await db.query(

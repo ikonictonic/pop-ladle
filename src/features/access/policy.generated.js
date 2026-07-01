@@ -9,9 +9,9 @@
 
 export const ABAC_POLICY = {
   "generatedFrom": "pop_ladle_abac_role_matrix.csv",
-  "sourceSha256": "7f2697cfccba11b7ad16beb67c438740974f74964000a2c0575a527ba081650c",
+  "sourceSha256": "23222522a204d8298f568e24cd786c726b9e44437b5eefca20c405296402d957",
   "roleCount": 143,
-  "capabilityCount": 300,
+  "capabilityCount": 304,
   "roles": [
     {
       "roleId": "PL-001-ADM",
@@ -2058,6 +2058,10 @@ export const ABAC_POLICY = {
         "taxonomy:edit:household",
         "export:tenant",
         "audit:read_scoped:household",
+        "recipe:delete",
+        "owner_transfer",
+        "clinical_status:acknowledge",
+        "cms_key:manage",
         "view"
       ],
       "customGrants": [
@@ -2111,6 +2115,9 @@ export const ABAC_POLICY = {
         "taxonomy:edit:household",
         "export:tenant",
         "billing:view",
+        "recipe:delete",
+        "clinical_status:acknowledge",
+        "cms_key:manage",
         "view"
       ],
       "customGrants": [],
@@ -4401,6 +4408,8 @@ export const ABAC_POLICY = {
       "clinical_content:edit_verify",
       "clinical_content:write",
       "clinical_limit:set",
+      "clinical_status:acknowledge",
+      "cms_key:manage",
       "code:merge_approve",
       "code:pr",
       "code:write",
@@ -4551,6 +4560,7 @@ export const ABAC_POLICY = {
       "org:configure",
       "org:configure:sub",
       "org:root",
+      "owner_transfer",
       "participant:enroll",
       "participant:view",
       "partner:slice_manage",
@@ -4594,6 +4604,7 @@ export const ABAC_POLICY = {
       "recipe:clinical_gate_reject",
       "recipe:cookability_verify",
       "recipe:create_draft",
+      "recipe:delete",
       "recipe:edit_content",
       "recipe:edit_flavor",
       "recipe:generate",

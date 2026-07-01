@@ -14,6 +14,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
@@ -81,7 +82,7 @@ export async function listNotesForCurrentUser(clerkUserId, householdId, careReci
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'note' })
   await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
 
   let category = null
@@ -139,7 +140,11 @@ export async function createNoteForCurrentUser(clerkUserId, householdId, careRec
 
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const note = normalizeCreatePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
+    action: 'note:write',
+    resourceType: 'note',
+    label: 'note:write',
+  })
   await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
   if (note.relatedRecipeId) await assertRecipeInHousehold(db, access.household.id, note.relatedRecipeId)
 
@@ -187,7 +192,11 @@ export async function updateNoteForCurrentUser(clerkUserId, householdId, noteId,
     throw createHttpError(400, 'NO_NOTE_UPDATES', 'Provide noteText or category to update.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
+    action: 'note:write',
+    resourceType: 'note',
+    label: 'note:write',
+  })
 
   const values = [normalizedNoteId, access.household.id]
   const setClauses = []
@@ -220,7 +229,11 @@ export async function removeNoteForCurrentUser(clerkUserId, householdId, noteId)
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedNoteId = normalizeUuid(noteId, 'INVALID_NOTE_ID', 'Note id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
+    action: 'note:write',
+    resourceType: 'note',
+    label: 'note:write',
+  })
 
   const result = await db.query(
     `delete from caregiver_notes where id = $1 and household_id = $2 returning id`,
@@ -243,7 +256,7 @@ export async function getRejectionRoutingForCurrentUser(clerkUserId, householdId
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'note' })
   await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
 
   // 1) Refusals from the Day Plan (acceptance = 'refused'), newest first.

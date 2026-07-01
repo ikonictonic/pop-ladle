@@ -9,6 +9,8 @@
 
 import { writeAuditLog } from '../audit-log/auditLogService.js'
 import { createHttpError, normalizeUuid } from '../households/householdAccess.js'
+import { maskFromLast4 } from '../provider-keys/providerKeyCrypto.js'
+import { upsertRosterMemberKey } from '../provider-keys/providerKeyService.js'
 import {
   ANY_ADMIN,
   CLINICAL_ADMINS,
@@ -398,27 +400,71 @@ export async function reinstateHouseholdForAdmin(clerkUserId, householdId, paylo
 // Committee roster governance — super or clinical admin
 // ---------------------------------------------------------------------------
 
-function rosterProjection() {
+function rosterProjection(alias = '') {
+  const p = alias ? `${alias}.` : ''
   return `
-    id,
-    role_key as "roleKey",
-    display_name as "displayName",
-    kind,
-    provider,
-    model,
-    system_prompt as "systemPrompt",
-    active,
-    position,
-    updated_at as "updatedAt"
+    ${p}id,
+    ${p}role_key as "roleKey",
+    ${p}display_name as "displayName",
+    ${p}kind,
+    ${p}provider,
+    ${p}model,
+    ${p}system_prompt as "systemPrompt",
+    ${p}active,
+    ${p}position,
+    ${p}updated_at as "updatedAt"
   `
 }
 
 export async function getRosterForAdmin(clerkUserId) {
   const { db, admin } = await requireInternalAdmin(clerkUserId, ANY_ADMIN)
   const result = await db.query(
-    `select ${rosterProjection()} from llm_provider_configs order by kind desc, position`,
+    `
+      select
+        ${rosterProjection('c')},
+        k.last4 as "keyLast4",
+        k.updated_at as "keyUpdatedAt"
+      from llm_provider_configs c
+      left join platform_provider_keys k
+        on k.scope = 'roster_member' and k.roster_member_id = c.id
+      order by c.kind desc, c.position
+    `,
   )
-  return { adminRole: admin.role, roster: result.rows }
+  const roster = result.rows.map(rowToRosterEntry)
+  return { adminRole: admin.role, roster }
+}
+
+/**
+ * Reshape a roster row (with optional joined per-specialist key columns) into
+ * the roster entry contract. The per-specialist key is surfaced only as an
+ * { isSet, maskedKey, updatedAt } summary — never the raw key.
+ */
+function rowToRosterEntry(row) {
+  const { keyLast4, keyUpdatedAt, ...entry } = row
+  entry.key = {
+    isSet: keyLast4 !== undefined && keyLast4 !== null ? true : Boolean(keyUpdatedAt),
+    maskedKey: keyUpdatedAt ? maskFromLast4(keyLast4) : null,
+    updatedAt: keyUpdatedAt ?? null,
+  }
+  return entry
+}
+
+async function readRosterEntryById(db, id) {
+  const result = await db.query(
+    `
+      select
+        ${rosterProjection('c')},
+        k.last4 as "keyLast4",
+        k.updated_at as "keyUpdatedAt"
+      from llm_provider_configs c
+      left join platform_provider_keys k
+        on k.scope = 'roster_member' and k.roster_member_id = c.id
+      where c.id = $1
+      limit 1
+    `,
+    [id],
+  )
+  return result.rows[0] ? rowToRosterEntry(result.rows[0]) : null
 }
 
 export async function updateRosterEntryForAdmin(clerkUserId, roleKey, payload) {
@@ -508,7 +554,173 @@ export async function updateRosterEntryForAdmin(clerkUserId, roleKey, payload) {
     extra: { roleKey, systemPromptChanged: payload.systemPrompt !== undefined },
   })
 
-  return { adminRole: admin.role, entry: result.rows[0] }
+  const entry = await readRosterEntryById(db, before.id)
+  return { adminRole: admin.role, entry }
+}
+
+// ---------------------------------------------------------------------------
+// Roster CRUD — create / delete a specialist, set a per-specialist key.
+// Governance matches the existing roster PATCH: super or clinical admin.
+// The new key + delete endpoints are keyed by the roster row UUID (:id),
+// matching the platform_provider_keys.roster_member_id FK.
+// ---------------------------------------------------------------------------
+
+const ROSTER_KINDS = ['specialist', 'chairman']
+
+function normalizeRosterId(value) {
+  return normalizeUuid(value, 'INVALID_ROSTER_ID', 'Roster id must be a UUID.')
+}
+
+function normalizeRoleKey(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw createHttpError(400, 'INVALID_ROLE_KEY', 'roleKey must be a non-empty string.', true)
+  }
+  const normalized = value.trim().toLowerCase()
+  if (!/^[a-z0-9_]+$/.test(normalized)) {
+    throw createHttpError(400, 'INVALID_ROLE_KEY', 'roleKey may contain only lowercase letters, digits, and underscores.', true)
+  }
+  return normalized
+}
+
+export async function createRosterEntryForAdmin(clerkUserId, payload) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const roleKey = normalizeRoleKey(payload.roleKey)
+
+  if (typeof payload.displayName !== 'string' || !payload.displayName.trim()) {
+    throw createHttpError(400, 'INVALID_DISPLAY_NAME', 'displayName must be a non-empty string.', true)
+  }
+  const displayName = payload.displayName.trim()
+
+  const kind = payload.kind === undefined ? 'specialist' : payload.kind
+  if (!ROSTER_KINDS.includes(kind)) {
+    throw createHttpError(400, 'INVALID_KIND', `kind must be one of: ${ROSTER_KINDS.join(', ')}.`, true)
+  }
+
+  const provider = payload.provider === undefined ? 'groq' : payload.provider
+  if (!ROSTER_PROVIDERS.includes(provider)) {
+    throw createHttpError(400, 'INVALID_PROVIDER', `provider must be one of: ${ROSTER_PROVIDERS.join(', ')}.`, true)
+  }
+
+  if (typeof payload.model !== 'string' || !payload.model.trim()) {
+    throw createHttpError(400, 'INVALID_MODEL', 'model must be a non-empty string.', true)
+  }
+  const model = payload.model.trim()
+
+  const systemPrompt = payload.systemPrompt === undefined || payload.systemPrompt === null
+    ? null
+    : String(payload.systemPrompt)
+
+  let position = payload.position
+  if (position !== undefined && !Number.isInteger(position)) {
+    throw createHttpError(400, 'INVALID_POSITION', 'position must be an integer.', true)
+  }
+  if (position === undefined) {
+    const maxResult = await db.query(
+      `select coalesce(max(position), -1) + 1 as "next" from llm_provider_configs`,
+    )
+    position = maxResult.rows[0].next
+  }
+
+  let inserted
+  try {
+    const result = await db.query(
+      `
+        insert into llm_provider_configs
+          (role_key, display_name, kind, provider, model, system_prompt, position)
+        values ($1, $2, $3, $4, $5, $6, $7)
+        returning id
+      `,
+      [roleKey, displayName, kind, provider, model, systemPrompt, position],
+    )
+    inserted = result.rows[0]
+  } catch (err) {
+    if (err && err.code === '23505') {
+      throw createHttpError(409, 'ROSTER_ROLE_KEY_TAKEN', `A roster entry with roleKey "${roleKey}" already exists.`, true)
+    }
+    throw err
+  }
+
+  await writeAuditLog(db, {
+    action: 'admin.roster_created',
+    entityType: 'llm_provider_config',
+    entityId: inserted.id,
+    actorUserId: user.id,
+    actorAdminRole: admin.role,
+    after: { roleKey, displayName, kind, provider, model },
+  })
+
+  const entry = await readRosterEntryById(db, inserted.id)
+  return { adminRole: admin.role, entry }
+}
+
+export async function deleteRosterEntryForAdmin(clerkUserId, id) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+  const rosterId = normalizeRosterId(id)
+
+  // Deleting the row cascades to platform_provider_keys (roster_member_id FK
+  // ON DELETE CASCADE), removing any per-specialist key with it.
+  const result = await db.query(
+    `delete from llm_provider_configs where id = $1
+     returning id, role_key as "roleKey", display_name as "displayName", kind`,
+    [rosterId],
+  )
+  const removed = result.rows[0]
+  if (!removed) {
+    throw createHttpError(404, 'ROSTER_ENTRY_NOT_FOUND', 'Roster entry was not found.', true)
+  }
+
+  await writeAuditLog(db, {
+    action: 'admin.roster_deleted',
+    entityType: 'llm_provider_config',
+    entityId: rosterId,
+    actorUserId: user.id,
+    actorAdminRole: admin.role,
+    before: { roleKey: removed.roleKey, displayName: removed.displayName, kind: removed.kind },
+  })
+
+  return { adminRole: admin.role, deletedId: rosterId }
+}
+
+export async function setRosterEntryKeyForAdmin(clerkUserId, id, payload) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+  const rosterId = normalizeRosterId(id)
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const memberResult = await db.query(
+    `select id, provider, role_key as "roleKey" from llm_provider_configs where id = $1 limit 1`,
+    [rosterId],
+  )
+  const member = memberResult.rows[0]
+  if (!member) {
+    throw createHttpError(404, 'ROSTER_ENTRY_NOT_FOUND', 'Roster entry was not found.', true)
+  }
+
+  const key = await upsertRosterMemberKey(db, {
+    rosterMemberId: member.id,
+    provider: member.provider,
+    apiKey: payload.apiKey,
+    updatedByUserId: user.id,
+  })
+
+  await writeAuditLog(db, {
+    action: 'admin.roster_member_key_set',
+    entityType: 'platform_provider_key',
+    entityId: key.id,
+    actorUserId: user.id,
+    actorAdminRole: admin.role,
+    after: { rosterMemberId: member.id, roleKey: member.roleKey, maskedKey: key.maskedKey },
+  })
+
+  const entry = await readRosterEntryById(db, member.id)
+  return { adminRole: admin.role, entry }
 }
 
 // ---------------------------------------------------------------------------

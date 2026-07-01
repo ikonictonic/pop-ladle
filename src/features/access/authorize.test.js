@@ -86,18 +86,24 @@ test('Owner deleting the household needs dual control (capability alone is not e
   assert.equal(authorize({ ...base, env: { dualControlSatisfied: true } }).allow, true)
 })
 
-test('DISCREPANCY #2: matrix never grants recipe:delete, so even Owner is default-denied', () => {
-  // Documents the inventory gap: legacy RBAC let owner/co_owner delete recipes,
-  // but the matrix has no recipe:delete grant. Shadow mode (Phase 2) will flag
-  // this; resolve by adding the grant to the CSV or deciding deletes are
-  // owner-only/soft. Until then the PDP faithfully denies.
-  const d = authorize({
+test('DISCREPANCY #2 RECONCILED: matrix now grants recipe:delete to Owner (and Co-Owner)', () => {
+  // The inventory gap is closed: the CSV grants recipe:delete to owner (PL-069)
+  // and co_owner (PL-070), so the PDP now agrees with legacy RBAC (which let
+  // owner/co_owner delete). Caregiver keeps its explicit DENY (see above).
+  const owner = authorize({
     subject: subject('PL-069-HH', tenant('hh-1')),
     action: 'recipe:delete',
     resource: recipeIn('hh-1'),
   })
-  assert.equal(d.allow, false)
-  assert.equal(d.reason, REASON.DEFAULT_DENY)
+  assert.equal(owner.allow, true)
+  assert.equal(owner.reason, REASON.ALLOWED)
+
+  const coOwner = authorize({
+    subject: subject('PL-070-HH', tenant('hh-1')),
+    action: 'recipe:delete',
+    resource: recipeIn('hh-1'),
+  })
+  assert.equal(coOwner.allow, true)
 })
 
 // ---- Scope (multi-tenant) --------------------------------------------------

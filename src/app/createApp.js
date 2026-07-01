@@ -23,6 +23,8 @@ import { createHouseholdSettingsRouter } from '../features/household-settings/ho
 import { createTaxonomyRouter } from '../features/taxonomy/taxonomyRoutes.js'
 import { createCmsApiKeyRouter } from '../features/cms-api-keys/cmsApiKeyRoutes.js'
 import { createBetaInviteRouter } from '../features/beta-invites/betaInviteRoutes.js'
+import { createRecipeRelationshipRouter } from '../features/recipe-relationships/recipeRelationshipRoutes.js'
+import { createProviderKeyRouter } from '../features/provider-keys/providerKeyRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -151,6 +153,8 @@ export function createApp() {
   app.use('/api/v1', createTaxonomyRouter())
   app.use('/api/v1', createCmsApiKeyRouter())
   app.use('/api/v1', createBetaInviteRouter())
+  app.use('/api/v1', createRecipeRelationshipRouter())
+  app.use('/api/v1', createProviderKeyRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

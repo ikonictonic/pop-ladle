@@ -14,7 +14,7 @@
 
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
-import { createHttpError, requireHouseholdRole } from '../households/householdAccess.js'
+import { createHttpError, requireHouseholdRole, requireHouseholdCapability } from '../households/householdAccess.js'
 
 const PLAN_VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
 
@@ -289,7 +289,7 @@ export async function getHouseholdPlanForCurrentUser(clerkUserId, householdId) {
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, PLAN_VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'plan' })
   const context = await getEntitlementContext(db, access.household.id)
 
   const usage = await db.query(

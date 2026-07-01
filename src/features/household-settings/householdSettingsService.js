@@ -1,7 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
-import { createHttpError, requireHouseholdRole } from '../households/householdAccess.js'
+import { createHttpError, requireHouseholdRole, requireHouseholdCapability } from '../households/householdAccess.js'
 
 // =============================================================================
 // householdSettingsService — per-household app settings (Branding section).
@@ -139,7 +139,7 @@ function normalizeSettingsPayload(payload) {
 export async function getHouseholdSettingsForCurrentUser(clerkUserId, householdId) {
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
-  const access = await requireHouseholdRole(db, user.id, householdId, SETTINGS_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'household_settings' })
   const row = await readSettings(db, access.household.id)
 
   return {
@@ -153,7 +153,11 @@ export async function saveHouseholdSettingsForCurrentUser(clerkUserId, household
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const updates = normalizeSettingsPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, SETTINGS_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, SETTINGS_WRITE_ROLES, {
+    action: 'household:settings',
+    resourceType: 'household_settings',
+    label: 'household-settings:write',
+  })
 
   const columnByField = {
     title: 'title',

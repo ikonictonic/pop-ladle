@@ -6,6 +6,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import {
   isStorageConfigured,
@@ -672,7 +673,11 @@ export async function createRecipeForCurrentUser(clerkUserId, householdId, paylo
   }
 
   const recipePayload = normalizeCreateRecipePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
+    action: 'recipe:edit_content',
+    resourceType: 'recipe',
+    label: 'recipe:create',
+  })
   await requireActiveCareRecipient(db, access.household.id, recipePayload.careRecipientId)
   // Entitlement gate: the free tier caps saved recipes. Unsaved drafts don't
   // count against the library, so only enforce the cap on an actual save.
@@ -715,7 +720,7 @@ export async function listRecipesForCurrentUser(clerkUserId, householdId, query)
   }
 
   const filters = normalizeListQuery(query)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'recipe' })
   const result = await db.query(
     `
       select
@@ -762,7 +767,7 @@ export async function getRecipeForCurrentUser(clerkUserId, householdId, recipeId
   }
 
   const normalizedRecipeId = normalizeRecipeId(recipeId)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'recipe' })
   const recipe = await readRecipeById(db, access.household.id, normalizedRecipeId)
 
   if (!recipe) {
@@ -800,7 +805,11 @@ export async function updateRecipeForCurrentUser(clerkUserId, householdId, recip
 
   const normalizedRecipeId = normalizeRecipeId(recipeId)
   const updates = normalizeUpdateRecipePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
+    action: 'recipe:edit_content',
+    resourceType: 'recipe',
+    label: 'recipe:update',
+  })
   await requireActiveCareRecipient(db, access.household.id, updates.careRecipientId)
 
   // Promoting a draft into the library counts against the free-tier cap, but
@@ -927,7 +936,11 @@ export async function modifyRecipeVersionForCurrentUser(clerkUserId, householdId
   const newVersionLabel = normalizeText(payload.newVersionLabel) || 'Modified'
   const incomingFlavorLog = normalizeJsonArray(payload.flavorChangeLog, 'flavorChangeLog', [])
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
+    action: 'recipe:edit_content',
+    resourceType: 'recipe',
+    label: 'recipe:version-create',
+  })
   const client = await db.connect()
 
   try {
@@ -1007,7 +1020,11 @@ export async function restoreRecipeVersionForCurrentUser(clerkUserId, householdI
     throw createHttpError(400, 'INVALID_VERSION_INDEX', 'versionIndex must be a non-negative integer.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
+    action: 'recipe:edit_content',
+    resourceType: 'recipe',
+    label: 'recipe:version-create',
+  })
   const client = await db.connect()
 
   try {

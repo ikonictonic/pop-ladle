@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto'
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
-import { createHttpError, requireHouseholdRole } from '../households/householdAccess.js'
+import { createHttpError, requireHouseholdRole, requireHouseholdCapability } from '../households/householdAccess.js'
 import { readRecipeById } from './recipeService.js'
 import {
   isStorageConfigured,
@@ -67,7 +67,11 @@ function getDb() {
 async function loadRecipeForWrite(db, clerkUserId, householdId, recipeId) {
   const user = await getCurrentAppUser(clerkUserId)
   const normalizedRecipeId = normalizeRecipeId(recipeId)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
+    action: 'recipe:edit_content',
+    resourceType: 'recipe',
+    label: 'recipe:photo-write',
+  })
   const recipe = await readRecipeById(db, access.household.id, normalizedRecipeId)
   if (!recipe) {
     throw createHttpError(404, 'RECIPE_NOT_FOUND', 'Recipe was not found.', true)
@@ -209,7 +213,7 @@ export async function getRecipePhotoUrl(clerkUserId, householdId, recipeId) {
 
   const user = await getCurrentAppUser(clerkUserId)
   const normalizedRecipeId = normalizeRecipeId(recipeId)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'recipe' })
   const recipe = await readRecipeById(db, access.household.id, normalizedRecipeId)
   if (!recipe) {
     throw createHttpError(404, 'RECIPE_NOT_FOUND', 'Recipe was not found.', true)

@@ -141,7 +141,11 @@ async function readKeyById(db, householdId, keyId) {
 export async function listCmsApiKeysForCurrentUser(clerkUserId, householdId) {
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
+    action: 'cms_key:manage',
+    resourceType: 'cms_api_key',
+    label: 'cms-key:list',
+  })
   const result = await db.query(
     `
       select
@@ -167,7 +171,11 @@ export async function createCmsApiKeyForCurrentUser(clerkUserId, householdId, pa
   const name = normalizeName(payload.name)
   const scopes = normalizeScopes(payload.scopes)
   const expiresAt = normalizeExpiresAt(payload.expiresAt)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
+    action: 'cms_key:manage',
+    resourceType: 'cms_api_key',
+    label: 'cms-key:create',
+  })
 
   const token = generateToken()
   const tokenHash = sha256Hex(token)
@@ -210,7 +218,11 @@ export async function renameCmsApiKeyForCurrentUser(clerkUserId, householdId, ke
   assertPayloadObject(payload)
   const normalizedId = normalizeKeyId(keyId)
   const name = normalizeName(payload.name)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
+    action: 'cms_key:manage',
+    resourceType: 'cms_api_key',
+    label: 'cms-key:rename',
+  })
 
   const result = await db.query(
     `update cms_api_keys set name = $3 where id = $1 and household_id = $2 returning id`,
@@ -243,7 +255,11 @@ export async function revokeCmsApiKeyForCurrentUser(clerkUserId, householdId, ke
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedId = normalizeKeyId(keyId)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
+    action: 'cms_key:manage',
+    resourceType: 'cms_api_key',
+    label: 'cms-key:revoke',
+  })
 
   // Soft revoke; coalesce keeps the original timestamp if already revoked.
   const result = await db.query(

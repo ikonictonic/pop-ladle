@@ -5,6 +5,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const HARD_RULE_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
@@ -430,7 +431,7 @@ export async function listHardRulesForCurrentUser(clerkUserId, householdId, quer
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const filters = normalizeListQuery(query)
-  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'hard_rule' })
   const result = await db.query(
     `
       select
@@ -469,7 +470,11 @@ export async function createHardRuleForCurrentUser(clerkUserId, householdId, pay
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const hardRulePayload = normalizeCreateHardRulePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES, {
+    action: 'hard_rule:edit',
+    resourceType: 'hard_rule',
+    label: 'hard_rule:edit',
+  })
 
   await requireActiveCareRecipient(db, access.household.id, hardRulePayload.careRecipientId)
 
@@ -500,7 +505,7 @@ export async function getHardRuleForCurrentUser(clerkUserId, householdId, hardRu
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedHardRuleId = normalizeHardRuleId(hardRuleId)
-  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_READ_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'hard_rule' })
   const hardRule = await readHardRuleById(db, access.household.id, normalizedHardRuleId)
 
   if (!hardRule) {
@@ -519,7 +524,11 @@ export async function updateHardRuleForCurrentUser(clerkUserId, householdId, har
   const db = getDbOrThrow()
   const normalizedHardRuleId = normalizeHardRuleId(hardRuleId)
   const updates = normalizeUpdateHardRulePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES, {
+    action: 'hard_rule:edit',
+    resourceType: 'hard_rule',
+    label: 'hard_rule:edit',
+  })
 
   await requireActiveCareRecipient(db, access.household.id, updates.careRecipientId)
 
@@ -571,7 +580,11 @@ export async function deleteHardRuleForCurrentUser(clerkUserId, householdId, har
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedHardRuleId = normalizeHardRuleId(hardRuleId)
-  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, HARD_RULE_WRITE_ROLES, {
+    action: 'hard_rule:edit',
+    resourceType: 'hard_rule',
+    label: 'hard_rule:edit',
+  })
   const existingHardRule = await readHardRuleById(db, access.household.id, normalizedHardRuleId)
 
   if (!existingHardRule) {

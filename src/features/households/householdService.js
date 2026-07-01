@@ -1,7 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
-import { normalizeUuid, requireHouseholdRole } from './householdAccess.js'
+import { normalizeUuid, requireHouseholdRole, requireHouseholdCapability } from './householdAccess.js'
 import {
   dispatchTransferInitiatedEmail,
   dispatchTransferAcceptedEmail,
@@ -349,7 +349,7 @@ export async function getHouseholdForCurrentUser(clerkUserId, householdId) {
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'household' })
   const household = await readHousehold(db, access.household.id)
   const entitlement = await readEntitlement(db, access.household.id)
 
@@ -389,7 +389,11 @@ export async function renameHouseholdForCurrentUser(clerkUserId, householdId, pa
   }
   const name = normalizeHouseholdName(payload.name)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_MANAGE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_MANAGE_ROLES, {
+    action: 'household:settings',
+    resourceType: 'household',
+    label: 'household:rename',
+  })
   const before = await readHousehold(db, access.household.id)
 
   const result = await db.query(
@@ -438,7 +442,11 @@ export async function initiateOwnershipTransferForCurrentUser(clerkUserId, house
   const memberId = normalizeUuid(payload.memberId, 'INVALID_MEMBER_ID', 'memberId must be a UUID.')
 
   // Only the owner initiates a transfer.
-  const access = await requireHouseholdRole(db, user.id, householdId, ['owner'])
+  const access = await requireHouseholdRole(db, user.id, householdId, ['owner'], {
+    action: 'owner_transfer',
+    resourceType: 'household',
+    label: 'household:transfer-initiate',
+  })
 
   const targetResult = await db.query(
     `
@@ -517,7 +525,11 @@ export async function acceptOwnershipTransferForCurrentUser(clerkUserId, househo
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_VIEW_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_VIEW_ROLES, {
+    action: 'owner_transfer',
+    resourceType: 'household',
+    label: 'household:transfer-accept',
+  })
   const client = await db.connect()
 
   try {
@@ -631,7 +643,11 @@ export async function cancelOwnershipTransferForCurrentUser(clerkUserId, househo
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, ['owner'])
+  const access = await requireHouseholdRole(db, user.id, householdId, ['owner'], {
+    action: 'owner_transfer',
+    resourceType: 'household',
+    label: 'household:transfer-cancel',
+  })
   const transfer = await readPendingTransfer(db, access.household.id)
 
   if (!transfer) {

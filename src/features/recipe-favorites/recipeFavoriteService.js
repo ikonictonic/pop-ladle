@@ -28,7 +28,11 @@ function getDb() {
 export async function listFavoriteRecipeIdsForCurrentUser(clerkUserId, householdId) {
   const db = getDb()
   const user = await getCurrentAppUser(clerkUserId)
-  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES, {
+    action: 'favorite:recipe',
+    resourceType: 'recipe',
+    label: 'favorite:list',
+  })
 
   const result = await db.query(
     `
@@ -53,7 +57,11 @@ export async function listFavoriteRecipeIdsForCurrentUser(clerkUserId, household
 export async function setRecipeFavoriteForCurrentUser(clerkUserId, householdId, recipeId, payload) {
   const db = getDb()
   const user = await getCurrentAppUser(clerkUserId)
-  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES, {
+    action: 'favorite:recipe',
+    resourceType: 'recipe',
+    label: 'favorite:set',
+  })
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'recipeId must be a UUID.')
 
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {

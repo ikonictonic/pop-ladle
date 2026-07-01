@@ -13,6 +13,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
@@ -126,7 +127,7 @@ export async function getDayPlanForCurrentUser(clerkUserId, householdId, careRec
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedCareRecipientId = normalizeUuid(careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'dayplan' })
   const careRecipient = await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
 
   // Single day (?date=) or a bounded range (?from=&to=). Default = today (UTC).
@@ -191,7 +192,11 @@ export async function addDayPlanEntryForCurrentUser(clerkUserId, householdId, ca
 
   const normalizedCareRecipientId = normalizeUuid(careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
   const entry = normalizeCreatePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'dayplan:execute',
+    resourceType: 'dayplan',
+    label: 'dayplan:edit',
+  })
   await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
   if (entry.recipeId) await assertRecipeInHousehold(db, access.household.id, entry.recipeId)
 
@@ -273,7 +278,11 @@ export async function updateDayPlanEntryForCurrentUser(clerkUserId, householdId,
 
   const normalizedEntryId = normalizeEntryId(entryId)
   const updates = normalizeUpdatePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'dayplan:execute',
+    resourceType: 'dayplan',
+    label: 'dayplan:edit',
+  })
 
   if (updates.recipe_adaptation_id) {
     await assertRecipeInHousehold(db, access.household.id, updates.recipe_adaptation_id)
@@ -318,7 +327,11 @@ export async function removeDayPlanEntryForCurrentUser(clerkUserId, householdId,
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedEntryId = normalizeEntryId(entryId)
-  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, EDIT_ROLES, {
+    action: 'dayplan:execute',
+    resourceType: 'dayplan',
+    label: 'dayplan:edit',
+  })
 
   const result = await db.query(
     `delete from day_plan_entries where id = $1 and household_id = $2 returning id`,

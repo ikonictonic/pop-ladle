@@ -221,3 +221,47 @@ the other ~25 `requireHouseholdRole` sites, the internal-admin gates (`requireIn
 Each remaining feature is the same grooved move: shadow → confirm agreement → swap to
 `requireHouseholdCapability` (back) + `hasCapability` (front). Then drop `normalizeRole` and the
 legacy arrays.
+
+## Phase 7 status — CSV gaps closed + shadow fan-out + read cutovers (this slice)
+
+**(1) Four CSV policy gaps reconciled** (matrix CSV → `npm run abac:compile`, additive only):
+- `recipe:delete` granted to Owner (PL-069-HH) + Co-Owner (PL-070-HH). Caregiver keeps its
+  explicit `DENY:recipe:delete` (matrix PL-071); discrepancy #2 is now closed — the PDP AGREES
+  with legacy `RECIPE_DELETE_ROLES=[owner,co_owner]`.
+- `owner_transfer` granted to Owner (PL-069-HH) only. Co-Owner's `DENY:owner_transfer` is
+  UNCHANGED (still denied). It remains a `DUAL_CONTROL_ACTION`.
+- `clinical_status:acknowledge` — NEW distinct household capability granted to Owner + Co-Owner
+  for the clinical-review DECISION path. This is deliberately NOT the staff-only
+  `recipe:clinical_gate_approve` (household acknowledgement ≠ clinical-gate approval, discrepancy
+  #4). **clinical-review's `applyReviewDecisionForCurrentUser` should cut over to this capability**
+  when its shadow logs confirm agreement (currently shadow-wired with action
+  `clinical_status:acknowledge`, label `clinical-review:decision`).
+- `cms_key:manage` — NEW household capability granted to Owner + Co-Owner for the CMS-key surface.
+
+**(2) Shadow mode fanned out** to every remaining household-scoped `requireHouseholdRole` site
+(recipes write/delete, recipe-favorites, households manage/transfer, household-settings write,
+members invite/role-change, hard-rules, care-recipients, notes, day-plan, grocery, hydration,
+taxonomy, clinical-review view/decision, accuracy-check, platform-recipes copy, audit-log,
+cms-api-keys, and recipe-brain's two legacy read paths). Log-only; behavior unchanged. Each site
+passes `{ action, resourceType, label }`.
+
+**(3) Read paths cut over to the PDP** — only pure reads mapping to `view` where `view` is granted
+to ALL FOUR household roles (verified in `policy.generated.js`). Cut over: recipes list/get,
+recipe-photo get, household get, day-plan view, grocery view, hydration view, hard-rules list/get,
+notes list + rejection-routing view, taxonomy list + usage, plans view, household-settings read,
+care-recipients list/get/care-profile-get. Membership 404/403 semantics preserved
+(`requireHouseholdCapability` runs `loadHouseholdMembership` first).
+
+**Left shadow-only (NOT cut over) and why:**
+- All write/execute/manage/delete/transfer paths — stay legacy+shadow for staging validation.
+- `recipe:delete`, `owner_transfer`, `clinical_status:acknowledge`, `cms_key:manage` sites — the 4
+  gap capabilities; hold for staging even though the grants now exist.
+- clinical-review view/get → `view:clinical_status` (NOT the generic `view`).
+- audit-log read → `audit:read_scoped:household` (owner/co_owner only, not `view`).
+- recipe-favorites → `favorite:recipe` (not `view`).
+- recipe-brain get-run / list-runs → mapped to `view` but gated by `GENERATE_ROLES` (excludes
+  viewer), so they are NOT all-four READ_ROLES paths; cutting them to `view` would widen access to
+  viewer. Left shadow-only.
+
+Legacy `*_ROLES` constants retained (still used by shadow + un-migrated writes). Shadow tests in
+`shadow.test.js` and `authorize.test.js` updated to assert the reconciled recipe:delete outcome.

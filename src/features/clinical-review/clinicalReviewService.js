@@ -63,7 +63,11 @@ export async function listRecipesForReviewForCurrentUser(clerkUserId, householdI
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES, {
+    action: 'view:clinical_status',
+    resourceType: 'clinical_status',
+    label: 'clinical-review:list',
+  })
 
   const status = normalizeText(query.status)
   if (status && !REVIEW_STATUSES.includes(status)) {
@@ -123,7 +127,11 @@ export async function getRecipeReviewForCurrentUser(clerkUserId, householdId, re
   }
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES, {
+    action: 'view:clinical_status',
+    resourceType: 'clinical_status',
+    label: 'clinical-review:get',
+  })
 
   const recipeResult = await db.query(
     `
@@ -216,7 +224,11 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
   const decision = normalizeDecisionPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, DECISION_ROLES)
+  const access = await requireHouseholdRole(db, user.id, householdId, DECISION_ROLES, {
+    action: 'clinical_status:acknowledge',
+    resourceType: 'clinical_status',
+    label: 'clinical-review:decision',
+  })
 
   const recipeResult = await db.query(
     `
