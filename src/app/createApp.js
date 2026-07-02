@@ -25,6 +25,7 @@ import { createCmsApiKeyRouter } from '../features/cms-api-keys/cmsApiKeyRoutes.
 import { createBetaInviteRouter } from '../features/beta-invites/betaInviteRoutes.js'
 import { createRecipeRelationshipRouter } from '../features/recipe-relationships/recipeRelationshipRoutes.js'
 import { createProviderKeyRouter } from '../features/provider-keys/providerKeyRoutes.js'
+import { createBillingRouter, createBillingWebhookRouter } from '../features/billing/billingRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -34,6 +35,9 @@ export function createApp() {
 
   app.disable('x-powered-by')
   app.use(createCorsMiddleware())
+  // The Stripe webhook verifies signatures against the RAW body, so its router
+  // must be mounted before express.json() consumes the stream.
+  app.use('/api/v1', createBillingWebhookRouter())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
   app.use(createRequestContextMiddleware())
@@ -109,6 +113,10 @@ export function createApp() {
         notifications: '/api/v1/notifications',
         notificationUnreadCount: '/api/v1/notifications/unread-count',
         notification: '/api/v1/notifications/:notificationId',
+        billingCheckout: '/api/v1/billing/checkout-session',
+        billingPortal: '/api/v1/billing/portal-session',
+        billingWebhook: '/api/v1/billing/webhook',
+        adminBilling: '/api/v1/admin/billing/* (overview, events, sync-catalog)',
       },
     })
   })
@@ -155,6 +163,7 @@ export function createApp() {
   app.use('/api/v1', createBetaInviteRouter())
   app.use('/api/v1', createRecipeRelationshipRouter())
   app.use('/api/v1', createProviderKeyRouter())
+  app.use('/api/v1', createBillingRouter())
 
   app.use('/api/v1', (req, res) => {
     res.status(404).json({

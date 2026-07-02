@@ -265,3 +265,53 @@ care-recipients list/get/care-profile-get. Membership 404/403 semantics preserve
 
 Legacy `*_ROLES` constants retained (still used by shadow + un-migrated writes). Shadow tests in
 `shadow.test.js` and `authorize.test.js` updated to assert the reconciled recipe:delete outcome.
+
+## Phase 3 — household write/execute cutover (this pass)
+
+The remaining shadow-only household write/execute/admin paths were cut over from legacy
+`requireHouseholdRole(...ROLES, shadowOpts)` to `requireHouseholdCapability(..., '<cap>', { resourceType })`.
+`requireHouseholdCapability` runs `loadHouseholdMembership` first, so 404 (no household) / 403
+(non-member) semantics are unchanged; entitlement gates (generator / library-copy / member-limit /
+care-recipient-limit / saved-recipe-cap) stay separate and were left in place.
+
+**CSV grants added first (additive, matrix is source of truth; `npm run abac:compile`):**
+- PL-070-HH Co-Owner: `+ household:settings`, `+ audit:read_scoped:household`
+- PL-071-HH Caregiver: `+ shopping:manage`, `+ hard_rule:edit`, `+ recipe:edit_content`, `+ care_profile:edit`
+  (caregiver's `DENY:care_profile:edit(beyond acceptance)` is a parenthetical = *conditional* deny;
+  the PDP surfaces it but does not hard-deny, so `care_profile:edit` authorizes.)
+Global `capabilityCount` is unchanged (304) because every added token already existed on the Owner
+role; the change is per-role grant coverage for Co-Owner/Caregiver.
+
+**Cut over to enforced capabilities:**
+- hydration log / delete-log → `hydration:log`; day-plan add/update/remove → `dayplan:execute`;
+  notes create/update/remove → `note:write`; taxonomy create/update/delete → `taxonomy:edit:household`;
+  recipes DELETE → `recipe:delete`; accuracy-check run → `recipe:generate`;
+  clinical-review DECISION → `clinical_status:acknowledge`;
+  members list/invite-create/suspend/remove/invites-list/invite-revoke/invite-resend → `iam:invite`;
+  cms-api-keys list/create/rename/revoke → `cms_key:manage`; recipe-favorites list/set → `favorite:recipe`.
+- household-settings write + households rename → `household:settings`; audit-log read →
+  `audit:read_scoped:household`; grocery generate/add/update/remove/clear → `shopping:manage`;
+  hard-rules create/update/delete → `hard_rule:edit`; recipes create/update + recipe-photo write +
+  version-create(x2) → `recipe:edit_content`; recipe-relationships set-master/relationship-create+delete/
+  pairing-create+delete → `recipe:edit_content` (was shadowing the phantom `recipe:update`, granted to
+  no role; corrected to the real content-edit token); care-recipient create/update + care-profile
+  update + profile-section update → `care_profile:edit`; clinical-review list/get (READS) → `view`
+  (was `view:clinical_status`, viewer-only; `view` is held by all four roles, consistent with every
+  other read path).
+
+**DEFERRED — still on legacy `requireHouseholdRole` + shadowOpts, pending product decisions:**
+- households transfer-ownership initiate / accept / cancel (`owner_transfer`) — needs a real
+  dual-control second-approver flow (accept is run BY the transfer target, not the initiator).
+- members role-change (`iam:grant_role:household`) — dual-control.
+- platform-recipes copy (`copy:recipe`) — clinical-gate-controlled; enforcing the capability would
+  change behavior (block copying not-yet-approved recipes). Needs a clinical-gate-on-copy decision.
+(Also left untouched, out of scope this pass: recipe-brain's two legacy read paths at ~851/940.)
+
+**`*_ROLES` constants removed** (grep showed ZERO remaining refs after cutover): `LOG_ROLES`,
+day-plan/grocery `EDIT_ROLES`, notes `WRITE_ROLES`, `TAXONOMY_WRITE_ROLES`, `HARD_RULE_WRITE_ROLES`,
+`SETTINGS_WRITE_ROLES`, `AUDIT_VIEW_ROLES`, `ACCURACY_WRITE_ROLES`, clinical-review `VIEW_ROLES` +
+`DECISION_ROLES`, `CARE_RECIPIENT_WRITE_ROLES`, `CMS_KEY_ROLES`, `FAVORITE_ROLES`, recipes +
+recipe-photo `RECIPE_WRITE_ROLES`, `RECIPE_DELETE_ROLES`, `RELATIONSHIP_WRITE_ROLES`.
+**Retained** (still referenced): `HOUSEHOLD_MANAGE_ROLES` (transfer-visibility helper),
+`HOUSEHOLD_VIEW_ROLES` (transfer-accept, deferred), `MEMBER_MANAGER_ROLES` (role-change, deferred),
+`INVITABLE_MEMBER_ROLES` (invitee value-set), plus pre-existing unused read constants left as-is.

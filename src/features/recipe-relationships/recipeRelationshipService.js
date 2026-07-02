@@ -4,7 +4,6 @@ import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
@@ -21,8 +20,6 @@ import {
 // (PDP, Phase 3), writes gate on the same owner role-set as recipe writes with
 // the shadow hook wired in.
 // =============================================================================
-
-const RELATIONSHIP_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
 
 const REL_PLANNED_OVER = 'planned_over'
 const REL_PAIRS_WELL_WITH = 'pairs_well_with'
@@ -207,11 +204,7 @@ export async function setMasterRecipeForCurrentUser(clerkUserId, householdId, re
   const masterNote = normalizeOptionalNote(payload.masterNote)
   const plannedOverCount = normalizeOptionalCount(payload.plannedOverCount)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RELATIONSHIP_WRITE_ROLES, {
-    action: 'recipe:update',
-    resourceType: 'recipe',
-    label: 'recipe:master',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
 
   await requireRecipe(db, access.household.id, normalizedRecipeId)
 
@@ -343,11 +336,7 @@ export async function createRelationshipForCurrentUser(clerkUserId, householdId,
     throw createHttpError(400, 'INVALID_RELATIONSHIP', 'A recipe cannot relate to itself.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RELATIONSHIP_WRITE_ROLES, {
-    action: 'recipe:update',
-    resourceType: 'recipe',
-    label: 'recipe:relationship',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
 
   // Both endpoints of the edge must be real, non-deleted recipes in this household.
   await requireRecipe(db, access.household.id, normalizedRecipeId)
@@ -419,11 +408,7 @@ export async function deleteRelationshipForCurrentUser(clerkUserId, householdId,
   const normalizedRecipeId = normalizeRecipeId(recipeId)
   const normalizedRelationshipId = normalizeRelationshipId(relationshipId)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RELATIONSHIP_WRITE_ROLES, {
-    action: 'recipe:update',
-    resourceType: 'recipe',
-    label: 'recipe:relationship',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
 
   // Scope the delete to this recipe (either endpoint) so callers can only remove
   // edges touching a recipe they addressed.
@@ -553,11 +538,7 @@ export async function createPairingForCurrentUser(clerkUserId, householdId, reci
     throw createHttpError(400, 'INVALID_PAIRING', 'A recipe cannot pair with itself.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RELATIONSHIP_WRITE_ROLES, {
-    action: 'recipe:update',
-    resourceType: 'recipe',
-    label: 'recipe:pairing',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
 
   await requireRecipe(db, access.household.id, normalizedRecipeId)
   await requireRecipe(db, access.household.id, targetRecipeId)
@@ -584,11 +565,7 @@ export async function deletePairingForCurrentUser(clerkUserId, householdId, reci
   const normalizedRecipeId = normalizeRecipeId(recipeId)
   const normalizedTargetId = normalizeTargetRecipeId(targetRecipeId)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RELATIONSHIP_WRITE_ROLES, {
-    action: 'recipe:update',
-    resourceType: 'recipe',
-    label: 'recipe:pairing',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
 
   const [sourceRecipeId, orderedTargetId] = orderPair(normalizedRecipeId, normalizedTargetId)
 

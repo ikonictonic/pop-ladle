@@ -14,11 +14,9 @@ import { getCurrentAppUser } from '../auth/currentUserService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import { runClinicalAccuracyCheck } from './engine/accuracyCheck.js'
-
-const ACCURACY_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
 
 /**
  * Initial clinical-review classification from the deterministic signals.
@@ -176,11 +174,7 @@ export async function runAccuracyCheckForCurrentUser(clerkUserId, householdId, r
   }
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, ACCURACY_WRITE_ROLES, {
-    action: 'recipe:generate',
-    resourceType: 'recipe',
-    label: 'accuracy-check:run',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:generate', { resourceType: 'recipe' })
 
   const recipeResult = await db.query(
     `

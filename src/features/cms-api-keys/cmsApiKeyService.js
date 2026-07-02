@@ -5,7 +5,7 @@ import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 // =============================================================================
@@ -20,8 +20,6 @@ import {
 // did it in the browser). Management is owner / co_owner only. Revocation is a
 // soft revoked_at stamp so the audit trail (who created it, last use) survives.
 // =============================================================================
-
-const CMS_KEY_ROLES = ['owner', 'co_owner']
 const TOKEN_PREFIX = 'pl_'
 const RANDOM_BYTES = 32 // 256 bits of entropy
 const DEFAULT_SCOPES = ['read_recipes']
@@ -141,11 +139,7 @@ async function readKeyById(db, householdId, keyId) {
 export async function listCmsApiKeysForCurrentUser(clerkUserId, householdId) {
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
-    action: 'cms_key:manage',
-    resourceType: 'cms_api_key',
-    label: 'cms-key:list',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'cms_key:manage', { resourceType: 'cms_api_key' })
   const result = await db.query(
     `
       select
@@ -171,11 +165,7 @@ export async function createCmsApiKeyForCurrentUser(clerkUserId, householdId, pa
   const name = normalizeName(payload.name)
   const scopes = normalizeScopes(payload.scopes)
   const expiresAt = normalizeExpiresAt(payload.expiresAt)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
-    action: 'cms_key:manage',
-    resourceType: 'cms_api_key',
-    label: 'cms-key:create',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'cms_key:manage', { resourceType: 'cms_api_key' })
 
   const token = generateToken()
   const tokenHash = sha256Hex(token)
@@ -218,11 +208,7 @@ export async function renameCmsApiKeyForCurrentUser(clerkUserId, householdId, ke
   assertPayloadObject(payload)
   const normalizedId = normalizeKeyId(keyId)
   const name = normalizeName(payload.name)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
-    action: 'cms_key:manage',
-    resourceType: 'cms_api_key',
-    label: 'cms-key:rename',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'cms_key:manage', { resourceType: 'cms_api_key' })
 
   const result = await db.query(
     `update cms_api_keys set name = $3 where id = $1 and household_id = $2 returning id`,
@@ -255,11 +241,7 @@ export async function revokeCmsApiKeyForCurrentUser(clerkUserId, householdId, ke
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedId = normalizeKeyId(keyId)
-  const access = await requireHouseholdRole(db, user.id, householdId, CMS_KEY_ROLES, {
-    action: 'cms_key:manage',
-    resourceType: 'cms_api_key',
-    label: 'cms-key:revoke',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'cms_key:manage', { resourceType: 'cms_api_key' })
 
   // Soft revoke; coalesce keeps the original timestamp if already revoked.
   const result = await db.query(

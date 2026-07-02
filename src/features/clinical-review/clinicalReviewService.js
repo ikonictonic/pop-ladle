@@ -14,11 +14,8 @@ import { createNotification } from '../notifications/notificationService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
-
-const VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const DECISION_ROLES = ['owner', 'co_owner']
 const REVIEW_STATUSES = ['not_reviewed', 'needs_review', 'approved', 'approved_with_caveats', 'denied']
 const DECISION_STATUSES = ['needs_review', 'approved', 'approved_with_caveats', 'denied']
 const ACCURACY_CONFIDENCES = ['high', 'medium', 'low', 'unknown']
@@ -63,11 +60,7 @@ export async function listRecipesForReviewForCurrentUser(clerkUserId, householdI
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES, {
-    action: 'view:clinical_status',
-    resourceType: 'clinical_status',
-    label: 'clinical-review:list',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'clinical_status' })
 
   const status = normalizeText(query.status)
   if (status && !REVIEW_STATUSES.includes(status)) {
@@ -127,11 +120,7 @@ export async function getRecipeReviewForCurrentUser(clerkUserId, householdId, re
   }
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, VIEW_ROLES, {
-    action: 'view:clinical_status',
-    resourceType: 'clinical_status',
-    label: 'clinical-review:get',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'view', { resourceType: 'clinical_status' })
 
   const recipeResult = await db.query(
     `
@@ -224,11 +213,7 @@ export async function applyReviewDecisionForCurrentUser(clerkUserId, householdId
 
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'Recipe id must be a UUID.')
   const decision = normalizeDecisionPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, DECISION_ROLES, {
-    action: 'clinical_status:acknowledge',
-    resourceType: 'clinical_status',
-    label: 'clinical-review:decision',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'clinical_status:acknowledge', { resourceType: 'clinical_status' })
 
   const recipeResult = await db.query(
     `

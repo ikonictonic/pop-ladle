@@ -5,7 +5,6 @@ import { assertWithinSavedRecipeCap } from '../plans/planService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import {
@@ -14,8 +13,6 @@ import {
 } from '../../integrations/storage/storageClient.js'
 
 const RECIPE_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const RECIPE_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
-const RECIPE_DELETE_ROLES = ['owner', 'co_owner']
 const MAX_TITLE_LENGTH = 180
 const MAX_TAG_LENGTH = 80
 const MAX_SEARCH_LENGTH = 120
@@ -673,11 +670,7 @@ export async function createRecipeForCurrentUser(clerkUserId, householdId, paylo
   }
 
   const recipePayload = normalizeCreateRecipePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
-    action: 'recipe:edit_content',
-    resourceType: 'recipe',
-    label: 'recipe:create',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
   await requireActiveCareRecipient(db, access.household.id, recipePayload.careRecipientId)
   // Entitlement gate: the free tier caps saved recipes. Unsaved drafts don't
   // count against the library, so only enforce the cap on an actual save.
@@ -805,11 +798,7 @@ export async function updateRecipeForCurrentUser(clerkUserId, householdId, recip
 
   const normalizedRecipeId = normalizeRecipeId(recipeId)
   const updates = normalizeUpdateRecipePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
-    action: 'recipe:edit_content',
-    resourceType: 'recipe',
-    label: 'recipe:update',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
   await requireActiveCareRecipient(db, access.household.id, updates.careRecipientId)
 
   // Promoting a draft into the library counts against the free-tier cap, but
@@ -843,11 +832,7 @@ export async function deleteRecipeForCurrentUser(clerkUserId, householdId, recip
   }
 
   const normalizedRecipeId = normalizeRecipeId(recipeId)
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_DELETE_ROLES, {
-    action: 'recipe:delete',
-    resourceType: 'recipe',
-    label: 'recipe:delete',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:delete', { resourceType: 'recipe' })
   const existingRecipe = await readRecipeById(db, access.household.id, normalizedRecipeId, true)
 
   if (!existingRecipe) {
@@ -936,11 +921,7 @@ export async function modifyRecipeVersionForCurrentUser(clerkUserId, householdId
   const newVersionLabel = normalizeText(payload.newVersionLabel) || 'Modified'
   const incomingFlavorLog = normalizeJsonArray(payload.flavorChangeLog, 'flavorChangeLog', [])
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
-    action: 'recipe:edit_content',
-    resourceType: 'recipe',
-    label: 'recipe:version-create',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
   const client = await db.connect()
 
   try {
@@ -1020,11 +1001,7 @@ export async function restoreRecipeVersionForCurrentUser(clerkUserId, householdI
     throw createHttpError(400, 'INVALID_VERSION_INDEX', 'versionIndex must be a non-negative integer.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, RECIPE_WRITE_ROLES, {
-    action: 'recipe:edit_content',
-    resourceType: 'recipe',
-    label: 'recipe:version-create',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:edit_content', { resourceType: 'recipe' })
   const client = await db.connect()
 
   try {

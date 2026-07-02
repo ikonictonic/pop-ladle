@@ -13,10 +13,8 @@
 
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
-import { createHttpError, requireHouseholdRole } from '../households/householdAccess.js'
+import { createHttpError, requireHouseholdCapability } from '../households/householdAccess.js'
 import { getRequestContext } from '../../app/requestContext.js'
-
-const AUDIT_VIEW_ROLES = ['owner', 'co_owner']
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 200
 
@@ -81,11 +79,7 @@ export async function listAuditLogForCurrentUser(clerkUserId, householdId, query
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, AUDIT_VIEW_ROLES, {
-    action: 'audit:read_scoped:household',
-    resourceType: 'audit_log',
-    label: 'audit-log:read',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'audit:read_scoped:household', { resourceType: 'audit_log' })
 
   const action = typeof query.action === 'string' && query.action.trim() ? query.action.trim() : null
   const requestedLimit = Number.parseInt(query.limit ?? `${DEFAULT_LIMIT}`, 10)

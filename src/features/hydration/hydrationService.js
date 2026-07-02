@@ -12,12 +12,10 @@ import { getCurrentAppUser } from '../auth/currentUserService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const LOG_ROLES = ['owner', 'co_owner', 'caregiver']
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_AMOUNT = 5000
 const MAX_BEVERAGE = 80
@@ -153,11 +151,7 @@ export async function logHydrationForCurrentUser(clerkUserId, householdId, careR
 
   const normalizedCareRecipientId = normalizeUuid(careRecipientId, 'INVALID_CARE_RECIPIENT_ID', 'careRecipientId must be a UUID.')
   const entry = normalizeLogPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, LOG_ROLES, {
-    action: 'hydration:log',
-    resourceType: 'hydration',
-    label: 'hydration:log',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'hydration:log', { resourceType: 'hydration' })
   const careRecipient = await loadCareRecipientWithGoal(db, access.household.id, normalizedCareRecipientId)
 
   // log_date follows logged_at's UTC date (default handles the now() case).
@@ -206,11 +200,7 @@ export async function removeHydrationLogForCurrentUser(clerkUserId, householdId,
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedLogId = normalizeUuid(logId, 'INVALID_LOG_ID', 'Hydration log id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, LOG_ROLES, {
-    action: 'hydration:log',
-    resourceType: 'hydration',
-    label: 'hydration:log',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'hydration:log', { resourceType: 'hydration' })
 
   const result = await db.query(
     `delete from hydration_logs where id = $1 and household_id = $2 returning id`,

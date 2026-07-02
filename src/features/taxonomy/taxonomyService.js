@@ -4,7 +4,6 @@ import { writeAuditLog } from '../audit-log/auditLogService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
@@ -21,7 +20,6 @@ import {
 // =============================================================================
 
 const TAXONOMY_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const TAXONOMY_WRITE_ROLES = ['owner', 'co_owner']
 const TAXONOMY_TYPES = ['meal_slot', 'recipe_category']
 const MAX_NAME_LENGTH = 80
 const MAX_COLOR_LENGTH = 32
@@ -206,11 +204,7 @@ export async function createTaxonomyForCurrentUser(clerkUserId, householdId, pay
     throw createHttpError(400, 'INVALID_TAXONOMY_NAME', 'name produces an empty slug; pick a different name.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
-    action: 'taxonomy:edit:household',
-    resourceType: 'taxonomy',
-    label: 'taxonomy:edit',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'taxonomy:edit:household', { resourceType: 'taxonomy' })
 
   let insertedId
   try {
@@ -267,11 +261,7 @@ export async function updateTaxonomyForCurrentUser(clerkUserId, householdId, tax
     throw createHttpError(400, 'NO_TAXONOMY_UPDATES', 'Provide at least one taxonomy field to update.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
-    action: 'taxonomy:edit:household',
-    resourceType: 'taxonomy',
-    label: 'taxonomy:edit',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'taxonomy:edit:household', { resourceType: 'taxonomy' })
 
   const columnByField = {
     name: 'name',
@@ -331,11 +321,7 @@ export async function deleteTaxonomyForCurrentUser(clerkUserId, householdId, tax
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const normalizedId = normalizeTaxonomyId(taxonomyId)
-  const access = await requireHouseholdRole(db, user.id, householdId, TAXONOMY_WRITE_ROLES, {
-    action: 'taxonomy:edit:household',
-    resourceType: 'taxonomy',
-    label: 'taxonomy:edit',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'taxonomy:edit:household', { resourceType: 'taxonomy' })
   const existing = await readTaxonomyById(db, access.household.id, normalizedId)
 
   if (!existing) {

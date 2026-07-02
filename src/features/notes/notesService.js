@@ -13,12 +13,10 @@ import { getCurrentAppUser } from '../auth/currentUserService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const VIEW_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
 const CATEGORIES = new Set([
   'general', 'good_day', 'hard_day', 'refusal', 'appetite', 'medication', 'observation',
 ])
@@ -140,11 +138,7 @@ export async function createNoteForCurrentUser(clerkUserId, householdId, careRec
 
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const note = normalizeCreatePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
-    action: 'note:write',
-    resourceType: 'note',
-    label: 'note:write',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'note:write', { resourceType: 'note' })
   await requireActiveCareRecipient(db, access.household.id, normalizedCareRecipientId)
   if (note.relatedRecipeId) await assertRecipeInHousehold(db, access.household.id, note.relatedRecipeId)
 
@@ -192,11 +186,7 @@ export async function updateNoteForCurrentUser(clerkUserId, householdId, noteId,
     throw createHttpError(400, 'NO_NOTE_UPDATES', 'Provide noteText or category to update.', true)
   }
 
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
-    action: 'note:write',
-    resourceType: 'note',
-    label: 'note:write',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'note:write', { resourceType: 'note' })
 
   const values = [normalizedNoteId, access.household.id]
   const setClauses = []
@@ -229,11 +219,7 @@ export async function removeNoteForCurrentUser(clerkUserId, householdId, noteId)
   if (!db) throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
 
   const normalizedNoteId = normalizeUuid(noteId, 'INVALID_NOTE_ID', 'Note id must be a UUID.')
-  const access = await requireHouseholdRole(db, user.id, householdId, WRITE_ROLES, {
-    action: 'note:write',
-    resourceType: 'note',
-    label: 'note:write',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'note:write', { resourceType: 'note' })
 
   const result = await db.query(
     `delete from caregiver_notes where id = $1 and household_id = $2 returning id`,

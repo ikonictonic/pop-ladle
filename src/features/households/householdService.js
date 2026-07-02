@@ -389,11 +389,7 @@ export async function renameHouseholdForCurrentUser(clerkUserId, householdId, pa
   }
   const name = normalizeHouseholdName(payload.name)
 
-  const access = await requireHouseholdRole(db, user.id, householdId, HOUSEHOLD_MANAGE_ROLES, {
-    action: 'household:settings',
-    resourceType: 'household',
-    label: 'household:rename',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'household:settings', { resourceType: 'household' })
   const before = await readHousehold(db, access.household.id)
 
   const result = await db.query(

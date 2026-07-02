@@ -33,6 +33,14 @@ export const env = Object.freeze({
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
   // and localhost dev are always allowed. Set to '*' to allow any origin.
   CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS ?? '',
+  // Stripe billing — server-side only. Unset STRIPE_SECRET_KEY degrades the
+  // billing endpoints to 503 BILLING_NOT_CONFIGURED (matching the S3/Resend
+  // posture); the webhook additionally requires STRIPE_WEBHOOK_SECRET for
+  // signature verification. STRIPE_API_VERSION is optional — empty string
+  // uses the SDK's pinned default.
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? '',
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+  STRIPE_API_VERSION: process.env.STRIPE_API_VERSION ?? '',
   // Object storage (S3-compatible — Cloudflare R2) for recipe photos.
   // Private bucket; presigned URLs only. Unset = storage features return 503.
   S3_ENDPOINT: process.env.S3_ENDPOINT ?? '',

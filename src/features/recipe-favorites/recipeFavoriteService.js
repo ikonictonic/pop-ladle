@@ -11,11 +11,9 @@
 
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
-import { createHttpError, normalizeUuid, requireHouseholdRole } from '../households/householdAccess.js'
+import { createHttpError, normalizeUuid, requireHouseholdCapability } from '../households/householdAccess.js'
 
 // View/favorite/copy/print is open to every role.
-const FAVORITE_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-
 function getDb() {
   const db = getDatabasePool()
   if (!db) {
@@ -28,11 +26,7 @@ function getDb() {
 export async function listFavoriteRecipeIdsForCurrentUser(clerkUserId, householdId) {
   const db = getDb()
   const user = await getCurrentAppUser(clerkUserId)
-  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES, {
-    action: 'favorite:recipe',
-    resourceType: 'recipe',
-    label: 'favorite:list',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'favorite:recipe', { resourceType: 'recipe' })
 
   const result = await db.query(
     `
@@ -57,11 +51,7 @@ export async function listFavoriteRecipeIdsForCurrentUser(clerkUserId, household
 export async function setRecipeFavoriteForCurrentUser(clerkUserId, householdId, recipeId, payload) {
   const db = getDb()
   const user = await getCurrentAppUser(clerkUserId)
-  const access = await requireHouseholdRole(db, user.id, householdId, FAVORITE_ROLES, {
-    action: 'favorite:recipe',
-    resourceType: 'recipe',
-    label: 'favorite:set',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'favorite:recipe', { resourceType: 'recipe' })
   const normalizedRecipeId = normalizeUuid(recipeId, 'INVALID_RECIPE_ID', 'recipeId must be a UUID.')
 
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {

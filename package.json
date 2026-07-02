@@ -18,6 +18,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1066.0",
     "@clerk/express": "^2.1.23",
     "express": "^5.2.1",
-    "pg": "^8.21.0"
+    "pg": "^8.21.0",
+    "stripe": "^22.3.0"
   }
 }

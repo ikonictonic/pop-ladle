@@ -189,6 +189,10 @@ export async function getHouseholdForAdmin(clerkUserId, householdId) {
       `
         select plan_tier as "planTier", plan_status as "planStatus",
                billing_source as "billingSource", trial_ends_at as "trialEndsAt",
+               external_customer_id as "externalCustomerId",
+               external_subscription_id as "externalSubscriptionId",
+               current_period_ends_at as "currentPeriodEndsAt",
+               grace_period_ends_at as "gracePeriodEndsAt",
                usage_limits as "usageLimits", feature_flags as "featureFlags",
                updated_at as "updatedAt"
         from household_entitlements

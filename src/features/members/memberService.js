@@ -7,6 +7,7 @@ import {
   createHttpError,
   normalizeUuid,
   requireHouseholdRole,
+  requireHouseholdCapability,
 } from '../households/householdAccess.js'
 
 const MEMBER_MANAGER_ROLES = ['owner', 'co_owner']
@@ -124,11 +125,7 @@ export async function listHouseholdMembersForCurrentUser(clerkUserId, householdI
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:list',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const result = await db.query(
     `
       select
@@ -176,11 +173,7 @@ export async function listHouseholdInvitesForCurrentUser(clerkUserId, householdI
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
 
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:invites-list',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const result = await db.query(
     `
       select
@@ -418,11 +411,7 @@ export async function suspendHouseholdMemberForCurrentUser(clerkUserId, househol
   }
 
   const normalizedMemberId = normalizeMemberId(memberId)
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:suspend',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const targetMember = await readMemberById(db, access.household.id, normalizedMemberId)
 
   assertMemberCanBeManaged(targetMember, requester, 'suspend')
@@ -466,11 +455,7 @@ export async function removeHouseholdMemberForCurrentUser(clerkUserId, household
   }
 
   const normalizedMemberId = normalizeMemberId(memberId)
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:remove',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const targetMember = await readMemberById(db, access.household.id, normalizedMemberId)
 
   assertMemberCanBeManaged(targetMember, requester, 'remove')
@@ -860,11 +845,7 @@ export async function createHouseholdInviteForCurrentUser(clerkUserId, household
   }
 
   const { email, role } = normalizeInvitePayload(payload)
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:invite-create',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const existingMember = await findAcceptedMemberByEmail(db, access.household.id, email)
 
   if (existingMember) {
@@ -944,11 +925,7 @@ export async function revokeHouseholdInviteForCurrentUser(clerkUserId, household
   }
 
   const normalizedInviteId = normalizeInviteId(inviteId)
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:invite-revoke',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const invite = await readInviteById(db, access.household.id, normalizedInviteId)
 
   if (!invite) {
@@ -1003,11 +980,7 @@ export async function resendHouseholdInviteForCurrentUser(clerkUserId, household
   }
 
   const normalizedInviteId = normalizeInviteId(inviteId)
-  const access = await requireHouseholdRole(db, requester.id, householdId, MEMBER_MANAGER_ROLES, {
-    action: 'iam:invite',
-    resourceType: 'member',
-    label: 'member:invite-resend',
-  })
+  const access = await requireHouseholdCapability(db, requester.id, householdId, 'iam:invite', { resourceType: 'member' })
   const invite = await readInviteById(db, access.household.id, normalizedInviteId)
 
   if (!invite) {

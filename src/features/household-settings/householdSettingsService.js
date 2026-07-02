@@ -1,7 +1,7 @@
 import { getDatabasePool } from '../../database/pool.js'
 import { getCurrentAppUser } from '../auth/currentUserService.js'
 import { writeAuditLog } from '../audit-log/auditLogService.js'
-import { createHttpError, requireHouseholdRole, requireHouseholdCapability } from '../households/householdAccess.js'
+import { createHttpError, requireHouseholdCapability } from '../households/householdAccess.js'
 
 // =============================================================================
 // householdSettingsService — per-household app settings (Branding section).
@@ -17,8 +17,6 @@ import { createHttpError, requireHouseholdRole, requireHouseholdCapability } fro
 // =============================================================================
 
 const SETTINGS_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const SETTINGS_WRITE_ROLES = ['owner', 'co_owner']
-
 // Faithful copy of the legacy DEFAULT_SETTINGS so a household that has never
 // saved sees the same fallbacks it did under Supabase.
 const DEFAULT_SETTINGS = {
@@ -153,11 +151,7 @@ export async function saveHouseholdSettingsForCurrentUser(clerkUserId, household
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const updates = normalizeSettingsPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, SETTINGS_WRITE_ROLES, {
-    action: 'household:settings',
-    resourceType: 'household_settings',
-    label: 'household-settings:write',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'household:settings', { resourceType: 'household_settings' })
 
   const columnByField = {
     title: 'title',

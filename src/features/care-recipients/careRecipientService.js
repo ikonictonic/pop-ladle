@@ -5,13 +5,11 @@ import { assertWithinCareRecipientLimit } from '../plans/planService.js'
 import {
   createHttpError,
   normalizeUuid,
-  requireHouseholdRole,
   requireHouseholdCapability,
 } from '../households/householdAccess.js'
 import { CLINICAL_PROFILE_SECTION_KEYS } from '../clinical-profiles/clinicalProfileSchema.js'
 
 const CARE_RECIPIENT_READ_ROLES = ['owner', 'co_owner', 'caregiver', 'viewer']
-const CARE_RECIPIENT_WRITE_ROLES = ['owner', 'co_owner', 'caregiver']
 const CARE_RECIPIENT_STATUSES = ['active', 'archived']
 export const CARE_PROFILE_REVIEW_STATUSES = ['draft', 'ready_for_use', 'needs_review']
 const MAX_DISPLAY_NAME_LENGTH = 120
@@ -703,11 +701,7 @@ export async function createCareRecipientForCurrentUser(clerkUserId, householdId
   const user = await getCurrentAppUser(clerkUserId)
   const db = getDbOrThrow()
   const careRecipientPayload = normalizeCreateCareRecipientPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
-    action: 'care_profile:edit',
-    resourceType: 'care_recipient',
-    label: 'care-recipient:create',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'care_profile:edit', { resourceType: 'care_recipient' })
   // Entitlement gate: plan care-recipient limit.
   await assertWithinCareRecipientLimit(db, access.household.id)
   const client = await db.connect()
@@ -783,11 +777,7 @@ export async function updateCareRecipientForCurrentUser(
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const updates = normalizeUpdateCareRecipientPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
-    action: 'care_profile:edit',
-    resourceType: 'care_recipient',
-    label: 'care-recipient:update',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'care_profile:edit', { resourceType: 'care_recipient' })
   const careRecipient = await updateCareRecipient(
     db,
     access.household.id,
@@ -855,11 +845,7 @@ export async function updateCareProfileForCurrentUser(
   const db = getDbOrThrow()
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const updates = normalizeUpdateCareProfilePayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
-    action: 'care_profile:edit',
-    resourceType: 'care_recipient',
-    label: 'care-profile:update',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'care_profile:edit', { resourceType: 'care_recipient' })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,
@@ -908,11 +894,7 @@ export async function updateCareProfileSectionForCurrentUser(
   const normalizedCareRecipientId = normalizeCareRecipientId(careRecipientId)
   const normalizedSectionKey = normalizeCareProfileSectionKey(sectionKey)
   const updates = normalizeUpdateCareProfileSectionPayload(payload)
-  const access = await requireHouseholdRole(db, user.id, householdId, CARE_RECIPIENT_WRITE_ROLES, {
-    action: 'care_profile:edit',
-    resourceType: 'care_recipient',
-    label: 'care-profile:section-update',
-  })
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'care_profile:edit', { resourceType: 'care_recipient' })
   const careRecipient = await readCareRecipientById(
     db,
     access.household.id,

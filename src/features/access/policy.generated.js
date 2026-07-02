@@ -9,7 +9,7 @@
 
 export const ABAC_POLICY = {
   "generatedFrom": "pop_ladle_abac_role_matrix.csv",
-  "sourceSha256": "23222522a204d8298f568e24cd786c726b9e44437b5eefca20c405296402d957",
+  "sourceSha256": "14d97317a403e9e233222ccd6a16bf2801db55214ea4af6d2d1bddfe02797eed",
   "roleCount": 143,
   "capabilityCount": 304,
   "roles": [
@@ -2118,7 +2118,9 @@ export const ABAC_POLICY = {
         "recipe:delete",
         "clinical_status:acknowledge",
         "cms_key:manage",
-        "view"
+        "view",
+        "household:settings",
+        "audit:read_scoped:household"
       ],
       "customGrants": [],
       "denies": [
@@ -2158,7 +2160,11 @@ export const ABAC_POLICY = {
         "food_acceptance:write",
         "note:write",
         "issue:report",
-        "view"
+        "view",
+        "shopping:manage",
+        "hard_rule:edit",
+        "recipe:edit_content",
+        "care_profile:edit"
       ],
       "customGrants": [],
       "denies": [
