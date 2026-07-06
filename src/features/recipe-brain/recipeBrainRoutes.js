@@ -3,6 +3,7 @@ import { requireAuthenticatedRequest } from '../auth/clerk.js'
 import {
   getRecipeBrainRunForCurrentUser,
   listRecipeBrainRunsForCurrentUser,
+  runRecipeBrainForAdmin,
   runRecipeBrainForCurrentUser,
 } from './recipeBrainService.js'
 
@@ -22,6 +23,13 @@ export function createRecipeBrainRouter() {
       res.status(201).json(result)
     },
   )
+
+  // Master Library generation (content admins): neutral clinical context,
+  // auto-publishes on a publishable verdict.
+  router.post('/admin/recipe-brain/runs', requireAuthenticatedRequest, async (req, res) => {
+    const result = await runRecipeBrainForAdmin(req.authContext.userId, req.body)
+    res.status(201).json(result)
+  })
 
   router.get(
     '/households/:householdId/recipe-brain/runs',

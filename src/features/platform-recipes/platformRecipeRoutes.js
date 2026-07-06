@@ -1,12 +1,15 @@
 import { Router } from 'express'
 import { requireAuthenticatedRequest } from '../auth/clerk.js'
 import {
+  applyReviewDecisionForAdmin,
   copyPlatformRecipeToHousehold,
   getPlatformRecipeForCurrentUser,
+  getRecipeForAdmin,
   listPlatformRecipesForCurrentUser,
   listRecipeReviewQueueForAdmin,
   publishRecipeForAdmin,
   unpublishRecipeForAdmin,
+  updateRecipeForAdmin,
 } from './platformRecipeService.js'
 
 export function createPlatformRecipeRouter() {
@@ -48,6 +51,20 @@ export function createPlatformRecipeRouter() {
 
   router.patch('/admin/recipes/:recipeId/unpublish', requireAuthenticatedRequest, async (req, res) => {
     res.status(200).json(await unpublishRecipeForAdmin(req.authContext.userId, req.params.recipeId))
+  })
+
+  // Master recipe read + edit (content admins). Content edits re-gate.
+  router.get('/admin/recipes/:recipeId', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(await getRecipeForAdmin(req.authContext.userId, req.params.recipeId))
+  })
+
+  router.patch('/admin/recipes/:recipeId', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(await updateRecipeForAdmin(req.authContext.userId, req.params.recipeId, req.body))
+  })
+
+  // Clinical-review decision on a master (library admins). Denied → unpublished.
+  router.post('/admin/recipes/:recipeId/review-decision', requireAuthenticatedRequest, async (req, res) => {
+    res.status(200).json(await applyReviewDecisionForAdmin(req.authContext.userId, req.params.recipeId, req.body))
   })
 
   return router

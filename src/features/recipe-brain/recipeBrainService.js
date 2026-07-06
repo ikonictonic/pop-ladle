@@ -28,8 +28,10 @@ import {
   parseChairwomanEnvelope,
   parseSpecialistEnvelope,
 } from './prompts.js'
-import { GENERATE_ROLES } from './generationPolicy.js'
+import { GENERATE_ROLES, shouldAutoPublish } from './generationPolicy.js'
 import { validateRecipeText } from './recipeInputGate.js'
+import { CONTENT_ADMINS, requireInternalAdmin } from '../super-admin/adminAccess.js'
+import { writeAuditLog } from '../audit-log/auditLogService.js'
 
 const SPECIALIST_USER_PROMPT =
   'Review the recipe above against the patient context. Return the JSON envelope as instructed.'
@@ -667,32 +669,27 @@ function parseTitleFromMarkdown(markdown) {
 // Public entry points
 // ---------------------------------------------------------------------------
 
-export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, payload, options = {}) {
-  const user = await getCurrentAppUser(clerkUserId)
-  const db = getDatabasePool()
-  if (!db) {
-    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
-  }
-
-  const runPayload = normalizeRunPayload(payload)
-  // Phase 3: the generator is the first feature cut over to PDP enforcement. The
-  // `recipe:generate` capability (matrix-derived, golden-tested = owner/co_owner/
-  // caregiver) is now the decision; Phase 2 shadow proved it equals GENERATE_ROLES.
-  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:generate', {
-    resourceType: 'recipe',
-  })
-  // Entitlement gate: generation is Solo+ only and requires good standing.
-  await requireGeneratorAccess(db, access.household.id)
-  const careRecipient = await loadCareRecipientContext(
-    db,
-    access.household.id,
-    runPayload.careRecipientId,
-  )
-  const activeHardRules = await loadActiveHardRuleContext(
-    db,
-    access.household.id,
-    runPayload.careRecipientId,
-  )
+/**
+ * The gate-free committee pipeline. Callers own authorization — the customer
+ * entry runs the household capability + entitlement gates, the admin entry
+ * runs requireInternalAdmin. Options:
+ *   signal          AbortSignal for the LLM calls
+ *   neutralContext  true = ignore the anchor household's care recipients and
+ *                   hard rules (admin/master generation: the anchor household
+ *                   only satisfies the NOT NULL constraint — its clinical
+ *                   context must not shape platform content)
+ *   autoPublish     { publishedByUserId, adminRole } — publish the saved
+ *                   recipe as a master IN THE SAME TRANSACTION when the
+ *                   verdict is publishable (PL-001: never on needs_review/denied)
+ */
+async function executeRecipeBrainRun(db, { user, householdId, runPayload, options = {} }) {
+  const neutralContext = options.neutralContext === true
+  const careRecipient = neutralContext
+    ? null
+    : await loadCareRecipientContext(db, householdId, runPayload.careRecipientId)
+  const activeHardRules = neutralContext
+    ? []
+    : await loadActiveHardRuleContext(db, householdId, runPayload.careRecipientId)
   const serverHardRules = activeHardRules.map(formatHardRuleForPrompt)
   const hardRules = serverHardRules.length > 0 ? serverHardRules : runPayload.hardRules
   const profileDailyLimits = careRecipient
@@ -713,7 +710,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
   const { specialists, chairwoman } = await loadActiveRoster(db)
 
   const runId = await insertRunRow(db, {
-    householdId: access.household.id,
+    householdId,
     careRecipientId: effectiveRunPayload.careRecipientId,
     payload: effectiveRunPayload,
     userId: user.id,
@@ -752,7 +749,7 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
       await persistChairwomanRow(client, runId, chairwomanResult)
       if (shouldSave) {
         recipe = await persistRecipe(client, {
-          householdId: access.household.id,
+          householdId,
           userId: user.id,
           runId,
           chairwoman: chairwomanResult,
@@ -760,7 +757,9 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
         })
 
         // Deterministic accuracy check on the produced recipe, using the same
-        // clinical profile the committee saw (hard rules are loaded from the DB).
+        // clinical profile the committee saw. Household runs load hard rules
+        // from the DB; neutral (admin/master) runs pass the same empty rule
+        // set the committee saw so the anchor household's rules stay out.
         const { accuracyCheckId } = await runAccuracyCheckForRecipe(client, {
           recipe: {
             id: recipe.id,
@@ -770,19 +769,46 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
             target_servings: effectiveRunPayload.targetServings,
             original_servings: effectiveRunPayload.originalServings,
           },
-          householdId: access.household.id,
+          householdId,
           careRecipientId: effectiveRunPayload.careRecipientId,
           clinicalProfileText: effectiveRunPayload.clinicalProfileText,
+          hardRules: neutralContext ? effectiveRunPayload.hardRules : null,
         })
 
         await insertCommitteeReview(client, {
-          householdId: access.household.id,
+          householdId,
           recipeId: recipe.id,
           status: chairwomanResult.verdict,
           summary: chairwomanResult.verdict_summary,
           runId,
           accuracyCheckId,
         })
+
+        // Admin generation: publish atomically with the save so an approved
+        // master never exists as an unpublished household row. Verdicts below
+        // the bar stay unpublished — the Clinical Review Gate is not bypassed.
+        if (options.autoPublish && shouldAutoPublish(chairwomanResult.verdict)) {
+          await client.query(
+            `
+              update recipe_adaptations
+              set scope = 'master', is_master_recipe = true,
+                  published_at = now(), published_by = $2, updated_at = now()
+              where id = $1
+            `,
+            [recipe.id, options.autoPublish.publishedByUserId],
+          )
+          await writeAuditLog(client, {
+            action: 'platform_recipe.published',
+            entityType: 'recipe_adaptation',
+            entityId: recipe.id,
+            actorUserId: options.autoPublish.publishedByUserId,
+            actorAdminRole: options.autoPublish.adminRole,
+            householdId,
+            after: { title: recipe.title, verdict: chairwomanResult.verdict },
+            extra: { via: 'admin_generation', runId },
+          })
+          recipe.published = true
+        }
       }
       await completeRun(client, runId, {
         chairwoman: chairwomanResult,
@@ -799,8 +825,6 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
     }
 
     return {
-      household: access.household,
-      requester: access.membership,
       run: {
         id: runId,
         careRecipientId: effectiveRunPayload.careRecipientId,
@@ -838,6 +862,106 @@ export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, pay
     await failRun(db, runId, err.message)
     throw err
   }
+}
+
+export async function runRecipeBrainForCurrentUser(clerkUserId, householdId, payload, options = {}) {
+  const user = await getCurrentAppUser(clerkUserId)
+  const db = getDatabasePool()
+  if (!db) {
+    throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
+  }
+
+  const runPayload = normalizeRunPayload(payload)
+  // Phase 3: the generator is the first feature cut over to PDP enforcement. The
+  // `recipe:generate` capability (matrix-derived, golden-tested = owner/co_owner/
+  // caregiver) is now the decision; Phase 2 shadow proved it equals GENERATE_ROLES.
+  const access = await requireHouseholdCapability(db, user.id, householdId, 'recipe:generate', {
+    resourceType: 'recipe',
+  })
+  // Entitlement gate: generation is Solo+ only and requires good standing.
+  await requireGeneratorAccess(db, access.household.id)
+
+  const result = await executeRecipeBrainRun(db, {
+    user,
+    householdId: access.household.id,
+    runPayload,
+    options: { signal: options.signal },
+  })
+
+  return { household: access.household, requester: access.membership, ...result }
+}
+
+// The anchor household for an admin/master run: masters keep a non-null
+// household_id (migration 013 — the publishing admin's household). The
+// household is a storage anchor only; neutralContext keeps its clinical
+// context out of the run.
+async function resolveAdminAnchorHousehold(db, userId) {
+  const result = await db.query(
+    `
+      select h.id, h.name
+      from household_members hm
+      join households h on h.id = hm.household_id
+      where hm.user_id = $1
+        and hm.role in ('owner', 'co_owner')
+        and hm.status = 'accepted'
+        and h.status = 'active'
+      order by hm.created_at asc
+      limit 1
+    `,
+    [userId],
+  )
+
+  if (result.rows.length === 0) {
+    throw createHttpError(
+      409,
+      'ADMIN_HOUSEHOLD_REQUIRED',
+      'Admin recipe generation needs a household to anchor the run. Create or join a household with this account first.',
+      true,
+    )
+  }
+
+  return result.rows[0]
+}
+
+/**
+ * Admin generation for the Master Library (ABAC PL-005). Runs the committee
+ * with a NEUTRAL clinical context (no care recipient, no household hard rules)
+ * and auto-publishes the recipe as a master when the verdict is publishable —
+ * instantly visible in every household's library browse. No entitlement gate:
+ * this is an internal action, and customer plan tiers do not apply to staff.
+ */
+export async function runRecipeBrainForAdmin(clerkUserId, payload, options = {}) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CONTENT_ADMINS)
+
+  const runPayload = normalizeRunPayload({ ...payload, careRecipientId: null, save: true })
+  const household = await resolveAdminAnchorHousehold(db, user.id)
+
+  const result = await executeRecipeBrainRun(db, {
+    user,
+    householdId: household.id,
+    runPayload,
+    options: {
+      signal: options.signal,
+      neutralContext: true,
+      autoPublish: { publishedByUserId: user.id, adminRole: admin.role },
+    },
+  })
+
+  await writeAuditLog(db, {
+    action: 'admin_recipe.generated',
+    entityType: 'recipe_brain_run',
+    entityId: result.run.id,
+    actorUserId: user.id,
+    actorAdminRole: admin.role,
+    householdId: household.id,
+    after: {
+      verdict: result.run.verdict,
+      recipeId: result.recipe?.id ?? null,
+      autoPublished: Boolean(result.recipe?.published),
+    },
+  })
+
+  return { adminRole: admin.role, anchorHouseholdId: household.id, ...result }
 }
 
 export async function getRecipeBrainRunForCurrentUser(clerkUserId, householdId, runId) {

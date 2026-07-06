@@ -12,6 +12,7 @@ import { createHttpError, normalizeUuid } from '../households/householdAccess.js
 import { maskFromLast4 } from '../provider-keys/providerKeyCrypto.js'
 import { upsertRosterMemberKey } from '../provider-keys/providerKeyService.js'
 import {
+  ALL_ADMINS,
   ANY_ADMIN,
   CLINICAL_ADMINS,
   SUPER_ONLY,
@@ -28,7 +29,7 @@ const ROSTER_PROVIDERS = ['anthropic', 'groq', 'gemini', 'mock']
 const PRIVACY_REQUEST_TYPES = ['export_user', 'delete_user', 'delete_household', 'anonymize_records']
 const PRIVACY_STATUSES = ['requested', 'approved', 'processing', 'completed', 'rejected', 'failed', 'canceled']
 const PRIVACY_TERMINAL = new Set(['completed', 'rejected', 'failed', 'canceled'])
-const ADMIN_ROLES = ['super_admin', 'support_admin', 'clinical_admin']
+const ADMIN_ROLES = ['super_admin', 'support_admin', 'clinical_admin', 'content_admin']
 
 function normalizeLimit(value, fallback = SEARCH_LIMIT_DEFAULT) {
   const parsed = Number.parseInt(value ?? `${fallback}`, 10)
@@ -44,7 +45,9 @@ function normalizeSearch(value) {
 // ---------------------------------------------------------------------------
 
 export async function getAdminOverview(clerkUserId) {
-  const { db, admin } = await requireInternalAdmin(clerkUserId, ANY_ADMIN)
+  // Every internal admin role gets the dashboard read — including
+  // content_admin, whose other surfaces are limited to the Master Library.
+  const { db, admin } = await requireInternalAdmin(clerkUserId, ALL_ADMINS)
 
   const result = await db.query(`
     select

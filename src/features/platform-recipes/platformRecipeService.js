@@ -6,7 +6,12 @@
  * with `source_master_recipe_id` set, re-gated against the copying household's
  * own Care Profile + hard rules.
  *
- *   Publish  — Super/Clinical admin flips an approved committee recipe to master.
+ *   Publish  — library admins (super/clinical/content) flip an approved
+ *              committee recipe to master; admin generation auto-publishes on
+ *              a publishable verdict (recipe-brain runRecipeBrainForAdmin).
+ *   Edit     — content admins edit masters in place; content edits re-gate
+ *              (accuracy re-check + needs_review) per PL-001.
+ *   Review   — library admins re-approve/deny masters; denied = unpublished.
  *   Browse   — any authenticated user lists/reads published masters.
  *   Copy     — owner/co-owner/caregiver clones a master into their household;
  *              entitlement-gated (library_copy = Basic+), accuracy re-checked,
@@ -26,7 +31,8 @@ import {
   normalizeUuid,
   requireHouseholdRole,
 } from '../households/householdAccess.js'
-import { CLINICAL_ADMINS, requireInternalAdmin } from '../super-admin/adminAccess.js'
+import { CONTENT_ADMINS, LIBRARY_ADMINS, requireInternalAdmin } from '../super-admin/adminAccess.js'
+import { normalizeDecisionPayload } from '../clinical-review/clinicalReviewService.js'
 
 const COPY_ROLES = ['owner', 'co_owner', 'caregiver']
 const PUBLISHABLE_STATUSES = new Set(['approved', 'approved_with_caveats'])
@@ -98,7 +104,7 @@ function normalizeAcceptTags(payload) {
  * acceptance into the library. This is the doctrine's "Recipe Review Queue".
  */
 export async function listRecipeReviewQueueForAdmin(clerkUserId, query = {}) {
-  const { db, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+  const { db, admin } = await requireInternalAdmin(clerkUserId, LIBRARY_ADMINS)
 
   const search = normalizeText(query.search)
   if (search.length > MAX_SEARCH) {
@@ -141,7 +147,7 @@ export async function listRecipeReviewQueueForAdmin(clerkUserId, query = {}) {
 // ---------------------------------------------------------------------------
 
 export async function publishRecipeForAdmin(clerkUserId, recipeId, payload = {}) {
-  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, LIBRARY_ADMINS)
   const normalizedId = normalizeRecipeId(recipeId)
   const tags = normalizeAcceptTags(payload)
 
@@ -198,7 +204,7 @@ export async function publishRecipeForAdmin(clerkUserId, recipeId, payload = {})
 }
 
 export async function unpublishRecipeForAdmin(clerkUserId, recipeId) {
-  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CLINICAL_ADMINS)
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, LIBRARY_ADMINS)
   const normalizedId = normalizeRecipeId(recipeId)
 
   const updated = await db.query(
@@ -295,6 +301,415 @@ function toLowerArray(value) {
   const raw = Array.isArray(value) ? value : `${value}`.split(',')
   const out = raw.map((v) => normalizeText(v).toLowerCase()).filter(Boolean)
   return out.length > 0 ? out : null
+}
+
+// ---------------------------------------------------------------------------
+// Admin read + edit of master recipes (content admins; ABAC PL-005)
+// ---------------------------------------------------------------------------
+
+// Content fields carry the recipe body the committee approved: changing them
+// re-runs the deterministic gate. Metadata applies instantly (PL-001: a changed
+// recipe body has not cleared the Clinical Review Gate; a retitle has).
+const ADMIN_CONTENT_FIELDS = ['outputMarkdown', 'sourceRecipeText']
+
+/** Pure: does this update set touch gate-relevant recipe content? */
+export function classifyAdminRecipeUpdates(updates) {
+  return {
+    contentChanged: ADMIN_CONTENT_FIELDS.some((field) => Object.hasOwn(updates ?? {}, field)),
+  }
+}
+
+const MAX_ADMIN_TITLE = 180
+const MAX_ADMIN_TEXT = 20000
+
+/**
+ * Pure: whitelist-normalize an admin master-recipe PATCH. Everything outside
+ * the whitelist is rejected — committee/gate-owned state (clinical_* fields,
+ * scope, saved, care recipient linkage) is never editable here.
+ */
+export function normalizeAdminUpdatePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
+  }
+
+  const updates = {}
+
+  if (payload.title !== undefined) {
+    const title = normalizeText(payload.title)
+    if (!title || title.length > MAX_ADMIN_TITLE) {
+      throw createHttpError(400, 'INVALID_RECIPE_TITLE', `title must be 1–${MAX_ADMIN_TITLE} characters.`, true)
+    }
+    updates.title = title
+  }
+
+  for (const [key, label] of [['outputMarkdown', 'outputMarkdown'], ['sourceRecipeText', 'sourceRecipeText']]) {
+    if (payload[key] !== undefined) {
+      const text = normalizeText(payload[key])
+      if (!text || text.length > MAX_ADMIN_TEXT) {
+        throw createHttpError(400, 'INVALID_RECIPE_TEXT', `${label} must be 1–${MAX_ADMIN_TEXT} characters.`, true)
+      }
+      updates[key] = text
+    }
+  }
+
+  for (const key of ['mealSlots', 'recipeCategories']) {
+    if (payload[key] !== undefined) {
+      updates[key] = normalizeTagArray(payload[key], key) ?? []
+    }
+  }
+
+  if (payload.photoUrl !== undefined) {
+    const url = normalizeText(payload.photoUrl)
+    updates.photoUrl = url || null
+  }
+
+  for (const key of ['targetServings', 'originalServings']) {
+    if (payload[key] !== undefined) {
+      if (payload[key] === null) {
+        updates[key] = null
+      } else {
+        const parsed = Number.parseInt(payload[key], 10)
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+          throw createHttpError(400, 'INVALID_SERVINGS', `${key} must be an integer between 1 and 100.`, true)
+        }
+        updates[key] = parsed
+      }
+    }
+  }
+
+  if (payload.servingNotes !== undefined) {
+    const notes = normalizeText(payload.servingNotes)
+    updates.servingNotes = notes || null
+  }
+
+  if (Object.keys(updates).length === 0) {
+    throw createHttpError(400, 'NO_RECIPE_UPDATES', 'Provide at least one editable field.', true)
+  }
+
+  return updates
+}
+
+const ADMIN_UPDATE_COLUMNS = {
+  title: 'title',
+  outputMarkdown: 'output_markdown',
+  sourceRecipeText: 'source_recipe_text',
+  mealSlots: 'meal_slots',
+  recipeCategories: 'recipe_categories',
+  photoUrl: 'photo_url',
+  targetServings: 'target_servings',
+  originalServings: 'original_servings',
+  servingNotes: 'serving_notes',
+}
+
+function adminRecipeProjection(alias = 'ra') {
+  return `
+    ${masterProjection(alias)},
+    ${alias}.source_recipe_text as "sourceRecipeText",
+    ${alias}.serving_notes as "servingNotes",
+    ${alias}.generation_mode as "generationMode",
+    ${alias}.accuracy_check_status as "accuracyCheckStatus",
+    ${alias}.accuracy_confidence as "accuracyConfidence",
+    ${alias}.needs_clinician_review as "needsClinicianReview",
+    ${alias}.clinical_review_notes as "clinicalReviewNotes",
+    ${alias}.clinical_review_caveats as "clinicalReviewCaveats",
+    ${alias}.clinical_reviewed_at as "clinicalReviewedAt",
+    ${alias}.household_id as "householdId",
+    ${alias}.published_by as "publishedBy",
+    ${alias}.updated_at as "updatedAt"
+  `
+}
+
+async function loadMasterForAdmin(db, recipeId) {
+  const result = await db.query(
+    `
+      select ${adminRecipeProjection('ra')},
+             ra.care_recipient_id as "careRecipientId",
+             ra.version_number as "versionNumber"
+      from recipe_adaptations ra
+      where ra.id = $1 and ra.scope = 'master' and ra.deleted_at is null
+      limit 1
+    `,
+    [recipeId],
+  )
+  const recipe = result.rows[0]
+  if (!recipe) {
+    throw createHttpError(404, 'MASTER_RECIPE_NOT_FOUND', 'Master recipe was not found.', true)
+  }
+  return recipe
+}
+
+/** Full master read for the admin console: content + gate state + review history. */
+export async function getRecipeForAdmin(clerkUserId, recipeId) {
+  const { db, admin } = await requireInternalAdmin(clerkUserId, LIBRARY_ADMINS)
+  const normalizedId = normalizeRecipeId(recipeId)
+
+  const recipe = await loadMasterForAdmin(db, normalizedId)
+
+  const [accuracyResult, historyResult] = await Promise.all([
+    db.query(
+      `
+        select id, passed, confidence, issues,
+               required_corrections as "requiredCorrections",
+               clinician_review_flags as "clinicianReviewFlags",
+               final_safety_summary as "finalSafetySummary",
+               created_at as "createdAt"
+        from recipe_accuracy_checks
+        where recipe_adaptation_id = $1
+        order by created_at desc
+        limit 1
+      `,
+      [normalizedId],
+    ),
+    db.query(
+      `
+        select id, source, status, notes, caveats,
+               reviewer_user_id as "reviewerUserId",
+               recipe_brain_run_id as "recipeBrainRunId",
+               created_at as "createdAt"
+        from recipe_clinical_reviews
+        where recipe_adaptation_id = $1
+        order by created_at desc
+      `,
+      [normalizedId],
+    ),
+  ])
+
+  return {
+    adminRole: admin.role,
+    recipe,
+    latestAccuracyCheck: accuracyResult.rows[0] ?? null,
+    history: historyResult.rows,
+  }
+}
+
+/**
+ * Admin edit of a master recipe. Metadata edits apply instantly; content edits
+ * (markdown / source text) re-run the accuracy check and send the recipe back
+ * to 'needs_review' — it STAYS published, wearing its pending status, until a
+ * library admin re-approves (or denies, which unpublishes).
+ */
+export async function updateRecipeForAdmin(clerkUserId, recipeId, payload) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, CONTENT_ADMINS)
+  const normalizedId = normalizeRecipeId(recipeId)
+  const updates = normalizeAdminUpdatePayload(payload)
+
+  const master = await loadMasterForAdmin(db, normalizedId)
+
+  // No-op content saves must not churn the gate: drop content fields whose
+  // value is identical to what the committee already approved.
+  if (updates.outputMarkdown !== undefined && updates.outputMarkdown === master.outputMarkdown) {
+    delete updates.outputMarkdown
+  }
+  if (updates.sourceRecipeText !== undefined && updates.sourceRecipeText === master.sourceRecipeText) {
+    delete updates.sourceRecipeText
+  }
+  if (Object.keys(updates).length === 0) {
+    return { adminRole: admin.role, recipe: master, regated: false, accuracyCheck: null }
+  }
+
+  const { contentChanged } = classifyAdminRecipeUpdates(updates)
+
+  const setClauses = []
+  const values = [normalizedId]
+  for (const [key, column] of Object.entries(ADMIN_UPDATE_COLUMNS)) {
+    if (updates[key] !== undefined) {
+      values.push(updates[key])
+      setClauses.push(`${column} = $${values.length}`)
+    }
+  }
+  // An externally-hosted photo URL replaces any uploaded object (mirrors the
+  // household updateRecipe rule).
+  if (typeof updates.photoUrl === 'string' && updates.photoUrl) {
+    setClauses.push('photo_storage_path = null')
+  }
+  values.push(user.id)
+  setClauses.push(`updated_by = $${values.length}`)
+
+  const client = await db.connect()
+  try {
+    await client.query('begin')
+
+    const updated = await client.query(
+      `
+        update recipe_adaptations ra
+        set ${setClauses.join(', ')}, updated_at = now()
+        where ra.id = $1 and ra.scope = 'master' and ra.deleted_at is null
+        returning ${adminRecipeProjection('ra')}
+      `,
+      values,
+    )
+    if (updated.rows.length === 0) {
+      throw createHttpError(404, 'MASTER_RECIPE_NOT_FOUND', 'Master recipe was not found.', true)
+    }
+    let recipe = updated.rows[0]
+    let accuracyCheck = null
+
+    if (contentChanged) {
+      const { accuracyCheckId, result: accuracy } = await runAccuracyCheckForRecipe(client, {
+        recipe: {
+          id: normalizedId,
+          source_recipe_text: recipe.sourceRecipeText,
+          output_markdown: recipe.outputMarkdown,
+          recipe_categories: recipe.recipeCategories,
+          target_servings: recipe.targetServings,
+          original_servings: recipe.originalServings,
+        },
+        householdId: master.householdId,
+        careRecipientId: master.careRecipientId,
+      })
+      accuracyCheck = { id: accuracyCheckId, passed: accuracy.passed, confidence: accuracy.confidence }
+
+      const regated = await client.query(
+        `
+          update recipe_adaptations ra
+          set clinical_review_status = 'needs_review', clinical_review_updated_at = now(), updated_at = now()
+          where ra.id = $1
+          returning ${adminRecipeProjection('ra')}
+        `,
+        [normalizedId],
+      )
+      recipe = regated.rows[0]
+
+      await client.query(
+        `
+          insert into recipe_clinical_reviews (
+            household_id, recipe_adaptation_id, source, status, notes,
+            reviewer_user_id, accuracy_check_id, recipe_version_number
+          )
+          values ($1, $2, 'human', 'needs_review', $3, $4, $5, $6)
+        `,
+        [
+          master.householdId, normalizedId,
+          `Content edited by ${admin.role} — re-review required.`,
+          user.id, accuracyCheckId, master.versionNumber,
+        ],
+      )
+    }
+
+    await writeAuditLog(client, {
+      action: 'platform_recipe.updated',
+      entityType: 'recipe_adaptation',
+      entityId: normalizedId,
+      actorUserId: user.id,
+      actorAdminRole: admin.role,
+      householdId: master.householdId,
+      before: {
+        clinicalReviewStatus: master.clinicalReviewStatus,
+        ...Object.fromEntries(Object.keys(updates).map((k) => [k, master[k] ?? null])),
+      },
+      after: {
+        clinicalReviewStatus: recipe.clinicalReviewStatus,
+        ...Object.fromEntries(Object.keys(updates).map((k) => [k, updates[k]])),
+      },
+      extra: { regated: contentChanged, accuracyCheckId: accuracyCheck?.id ?? null },
+    })
+
+    await client.query('commit')
+    return { adminRole: admin.role, recipe, regated: contentChanged, accuracyCheck }
+  } catch (err) {
+    try { await client.query('rollback') } catch { /* keep original error */ }
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Clinical-review decision on a master recipe from the admin console. The
+ * household decision route requires membership in the master's home household —
+ * the wrong layer for internal staff. Denied decisions also unpublish in the
+ * same transaction: a denied recipe cannot remain in the library (PL-001).
+ */
+export async function applyReviewDecisionForAdmin(clerkUserId, recipeId, payload) {
+  const { db, user, admin } = await requireInternalAdmin(clerkUserId, LIBRARY_ADMINS)
+  const normalizedId = normalizeRecipeId(recipeId)
+  const decision = normalizeDecisionPayload(payload)
+
+  const master = await loadMasterForAdmin(db, normalizedId)
+
+  const client = await db.connect()
+  try {
+    await client.query('begin')
+
+    const historyInsert = await client.query(
+      `
+        insert into recipe_clinical_reviews (
+          household_id, recipe_adaptation_id, source, status, notes, caveats,
+          reviewer_user_id, recipe_version_number
+        )
+        values ($1, $2, 'human', $3, $4, $5, $6, $7)
+        returning id, source, status, notes, caveats, created_at as "createdAt"
+      `,
+      [
+        master.householdId, normalizedId, decision.status,
+        decision.notes, decision.caveats, user.id, master.versionNumber,
+      ],
+    )
+
+    let updated = await client.query(
+      `
+        update recipe_adaptations ra
+        set clinical_review_status = $2,
+            clinical_review_notes = $3,
+            clinical_review_caveats = $4,
+            clinical_reviewed_by = $5,
+            clinical_reviewed_at = now(),
+            clinical_review_version_number = $6,
+            clinical_review_updated_at = now(),
+            updated_at = now()
+        where ra.id = $1
+        returning ${adminRecipeProjection('ra')}
+      `,
+      [normalizedId, decision.status, decision.notes, decision.caveats, user.id, master.versionNumber],
+    )
+    let recipe = updated.rows[0]
+
+    if (decision.status === 'denied') {
+      updated = await client.query(
+        `
+          update recipe_adaptations ra
+          set scope = 'household', is_master_recipe = false,
+              published_at = null, published_by = null, updated_at = now()
+          where ra.id = $1
+          returning ${adminRecipeProjection('ra')}
+        `,
+        [normalizedId],
+      )
+      recipe = updated.rows[0]
+
+      await writeAuditLog(client, {
+        action: 'platform_recipe.unpublished',
+        entityType: 'recipe_adaptation',
+        entityId: normalizedId,
+        actorUserId: user.id,
+        actorAdminRole: admin.role,
+        householdId: master.householdId,
+        before: { scope: 'master', title: master.title },
+        reason: 'clinical review denied',
+      })
+    }
+
+    await writeAuditLog(client, {
+      action: 'clinical_review.decision',
+      entityType: 'recipe_adaptation',
+      entityId: normalizedId,
+      actorUserId: user.id,
+      actorAdminRole: admin.role,
+      householdId: master.householdId,
+      before: { clinicalReviewStatus: master.clinicalReviewStatus },
+      after: { clinicalReviewStatus: decision.status, caveats: decision.caveats },
+      reason: decision.notes,
+      extra: { via: 'admin_console' },
+    })
+
+    await client.query('commit')
+    return { adminRole: admin.role, recipe, review: historyInsert.rows[0], unpublished: decision.status === 'denied' }
+  } catch (err) {
+    try { await client.query('rollback') } catch { /* keep original error */ }
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 // ---------------------------------------------------------------------------

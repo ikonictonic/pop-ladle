@@ -14,7 +14,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-import { GENERATE_ROLES, canRoleGenerate } from './generationPolicy.js'
+import { GENERATE_ROLES, canRoleGenerate, shouldAutoPublish } from './generationPolicy.js'
 import { requireGeneratorAccess } from '../plans/planService.js'
 
 // ---- 1. Role gate ---------------------------------------------------------
@@ -122,4 +122,30 @@ test('runRecipeBrainForCurrentUser wires the capability gate then the entitlemen
   assert.ok(capabilityGate !== -1, 'create-run path must gate on the recipe:generate capability')
   assert.ok(entitlementGate !== -1, 'create-run path must call requireGeneratorAccess')
   assert.ok(capabilityGate < entitlementGate, 'capability gate should run before the entitlement gate')
+})
+
+// ---- 4. Admin auto-publish (PL-001: the gate is never bypassed) -------------
+
+test('shouldAutoPublish: only committee-approved verdicts enter the library', () => {
+  assert.equal(shouldAutoPublish('approved'), true)
+  assert.equal(shouldAutoPublish('approved_with_caveats'), true)
+})
+
+test('shouldAutoPublish: needs_review / denied / unknown never auto-publish', () => {
+  assert.equal(shouldAutoPublish('needs_review'), false)
+  assert.equal(shouldAutoPublish('denied'), false)
+  assert.equal(shouldAutoPublish(undefined), false)
+  assert.equal(shouldAutoPublish(null), false)
+  assert.equal(shouldAutoPublish(''), false)
+})
+
+test('the admin run path is gated on CONTENT_ADMINS and uses a neutral context', async () => {
+  const source = await readFile(new URL('./recipeBrainService.js', import.meta.url), 'utf8')
+
+  const adminEntry = source.indexOf('export async function runRecipeBrainForAdmin')
+  assert.ok(adminEntry !== -1, 'admin entry point must exist')
+  const adminBody = source.slice(adminEntry)
+  assert.ok(adminBody.includes('requireInternalAdmin(clerkUserId, CONTENT_ADMINS)'), 'admin runs gate on CONTENT_ADMINS')
+  assert.ok(adminBody.includes('neutralContext: true'), 'admin runs must not inherit household clinical context')
+  assert.ok(adminBody.includes('careRecipientId: null'), 'admin runs never target a care recipient')
 })

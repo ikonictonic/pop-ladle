@@ -181,7 +181,9 @@ export async function getRecipeReviewForCurrentUser(clerkUserId, householdId, re
   }
 }
 
-function normalizeDecisionPayload(payload) {
+// Exported for the admin master-recipe review path (platform-recipes), which
+// applies the same decision rules against masters without household membership.
+export function normalizeDecisionPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw createHttpError(400, 'INVALID_REQUEST_BODY', 'Request body must be a JSON object.', true)
   }
