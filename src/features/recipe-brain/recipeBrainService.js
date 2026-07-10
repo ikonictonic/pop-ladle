@@ -428,22 +428,41 @@ async function runChairwoman(chairwoman, contextBlock, deliberations, signal) {
 }
 
 // Deterministic fallback when synthesis fails — never silently approve.
+//
+// A failed synthesis means nobody adapted the recipe: the specialists only ever
+// voted on the *source* text. So the two things this must never do are (a) mark
+// the result approved, which would let an unreviewed recipe publish and be
+// copied into other households, and (b) persist the raw model output as the
+// recipe body, which renders a JSON blob to caregivers. A deny from any
+// specialist is still a hard block; everything else lands in needs_review so a
+// human has to look. The raw output is kept on the run record for admins.
 function rollUpFallback(deliberations, rawContent) {
   const hasDeny = deliberations.some((d) => d.verdict === 'deny')
-  const hasCaveats = deliberations.some((d) => d.verdict === 'approve_with_caveats' || !d.ok)
-  const verdict = hasDeny ? 'denied' : (hasCaveats ? 'approved_with_caveats' : 'approved')
+  const verdict = hasDeny ? 'denied' : 'needs_review'
 
   return {
-    recipe_markdown: rawContent || '(Chairwoman synthesis failed — see specialist deliberations.)',
+    // Deliberately headless: parseTitleFromMarkdown() takes the first heading as
+    // the recipe title, and this placeholder must not become one — the recipe
+    // keeps its source title so a caregiver can still identify which dish failed.
+    recipe_markdown:
+      '**Recipe unavailable.**\n\n' +
+      'The Care Team reviewed this recipe, but the final synthesis step failed, so no ' +
+      'adapted recipe was produced. Nothing here has been cleared for cooking.\n\n' +
+      'Re-run the adaptation, or open the specialist deliberations below to see what the ' +
+      'committee found.',
     verdict,
-    verdict_summary: 'Auto-rolled-up from specialist verdicts; Chairwoman synthesis did not produce a valid envelope.',
+    verdict_summary: 'Chairwoman synthesis did not produce a valid envelope; held for human review.',
     caveats: deliberations
       .filter((d) => d.verdict !== 'approve')
       .map((d) => `${d.displayName}: ${d.verdictRationale || d.error || 'no rationale'}`),
-    warning_items: [],
+    warning_items: ['Automated synthesis failed — this recipe has not been adapted or cleared.'],
     clinician_flags: [],
   }
 }
+
+// Exported for chairwomanEnvelope.test.js — this is a clinical safety gate, so
+// its behaviour is pinned by tests rather than left to inspection.
+export { rollUpFallback as __rollUpFallbackForTests }
 
 function sumTokens(deliberations, chairwoman, key) {
   const specialistTotal = deliberations.reduce((acc, d) => acc + (d[key] ?? 0), 0)
@@ -560,7 +579,13 @@ async function persistRecipe(client, { householdId, userId, runId, chairwoman, p
     ],
   )
 
-  const title = payload.title || parseTitleFromMarkdown(chairwoman.recipe_markdown) || 'Untitled Recipe'
+  // The adapted recipe's own heading wins over the caller-supplied source title.
+  // A recipe rewritten to remove grapefruit must not stay titled "Grapefruit
+  // Glazed Chicken" — that title is what caregivers scan in the library, the
+  // planner, and rejection routing. Fall back to the source title only when the
+  // synthesis produced no heading (e.g. the needs_review fallback body).
+  const title =
+    parseTitleFromMarkdown(chairwoman.recipe_markdown) || payload.title || 'Untitled Recipe'
 
   const recipe = await client.query(
     `
@@ -660,9 +685,15 @@ function parseTitleFromMarkdown(markdown) {
     const trimmed = line.trim()
     if (!trimmed) continue
     const headingMatch = trimmed.match(/^#{1,6}\s+(.+)$/)
-    if (headingMatch?.[1]) return headingMatch[1].trim()
+    if (headingMatch?.[1]) return stripTitleLabel(headingMatch[1])
   }
   return null
+}
+
+// Pasted recipes often lead with a literal "Title: ..." label, which otherwise
+// becomes the stored recipe name (e.g. "Title: Lemon Yogurt Cake").
+function stripTitleLabel(text) {
+  return text.trim().replace(/^title\s*[:\-–]\s*/i, '').trim()
 }
 
 // ---------------------------------------------------------------------------

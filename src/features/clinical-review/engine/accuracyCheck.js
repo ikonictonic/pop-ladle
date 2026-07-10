@@ -7,7 +7,12 @@
 // claims, practical cooking. Pure — no deps beyond the sibling engine modules.
 // =============================================================================
 
-import { parseIngredients, detectOriginalServings } from './ingredientParser.js'
+import {
+  parseIngredients,
+  detectOriginalServings,
+  parseLoadoutQuantities,
+  parseSourceQuantities,
+} from './ingredientParser.js'
 import { postflightAudit } from './ruleEngine.js'
 import { CLINICAL_NUTRITION_SOURCES, pickRelevantSources } from './sourceRegistry.js'
 
@@ -241,6 +246,45 @@ export function runClinicalAccuracyCheck({
         required_correction: 'Add original servings to the SERVING SUMMARY section.',
         source_basis: 'hard_rule',
       })
+      servingCheckPassed = false
+    }
+  }
+
+  // In adapt mode, a target that differs from the original means every ingredient
+  // amount should have moved. Saying "Target servings: 2" over a recipe whose
+  // quantities are still the 4-serving amounts doubles the per-serving sodium and
+  // potassium against the care recipient's limits — precisely what the intake
+  // limits exist to prevent. Compare only ingredients that survived adaptation
+  // (substituted ones change name anyway); if none of them moved, nothing scaled.
+  const effectiveOriginal = originalServings || detected.servings
+  if (
+    generationMode !== 'preserve_original' &&
+    targetServings && effectiveOriginal && targetServings !== effectiveOriginal
+  ) {
+    const sourceQty = parseSourceQuantities(sourceRecipeText)
+    const outputQty = parseLoadoutQuantities(generatedRecipe)
+    const ratio = targetServings / effectiveOriginal
+
+    const shared = [...outputQty.keys()].filter((k) => sourceQty.has(k))
+    const unchanged = shared.filter((k) => Math.abs(sourceQty.get(k) - outputQty.get(k)) < 1e-9)
+    // Some amounts legitimately don't scale (searing oil, a pinch of pepper), and
+    // a unit change ("4 thighs" -> "1.5 lb") isn't a scale either. So don't demand
+    // that everything moved — require that *nothing* moved by the expected factor.
+    const scaled = shared.filter((k) => {
+      const expected = sourceQty.get(k) * ratio
+      return Math.abs(outputQty.get(k) - expected) <= Math.abs(expected) * 0.1
+    })
+
+    if (shared.length >= 2 && unchanged.length >= 2 && scaled.length === 0) {
+      issues.push({
+        severity: 'high',
+        section: 'servings',
+        issue: `Recipe is labelled ${targetServings} servings but ingredient amounts are unchanged from the ${effectiveOriginal}-serving source (${unchanged.slice(0, 3).join(', ')}).`,
+        why_it_matters: 'Per-serving sodium, potassium, and fluid are wrong by the scaling factor, so a caregiver following the recipe can exceed the daily intake limits.',
+        required_correction: `Rescale every ingredient amount from ${effectiveOriginal} to ${targetServings} servings, or state the true serving count.`,
+        source_basis: 'hard_rule',
+      })
+      requiredCorrections.push(`Rescale ingredient amounts to ${targetServings} servings.`)
       servingCheckPassed = false
     }
   }

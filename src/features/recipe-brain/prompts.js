@@ -289,6 +289,10 @@ ${nutritionText}
 SERVINGS:
 - Target servings: ${targetServings ?? '(not specified — keep the source recipe servings)'}
 - Original servings: ${originalServings ?? '(detect from the source recipe if stated)'}
+- If the target differs from the original, RESCALE EVERY INGREDIENT AMOUNT in the
+  LOADOUT by target/original. Do not simply relabel the serving count: the intake
+  limits above are per serving, so leaving the original amounts under a smaller
+  serving count silently doubles sodium, potassium, and fluid per portion.
 
 SOURCE RECIPE (original, before adaptation):
 ${sourceRecipe}`
@@ -378,6 +382,54 @@ function normalizeChairwomanVerdict(value) {
   return CHAIRWOMAN_VERDICTS.has(value) ? value : 'approved_with_caveats'
 }
 
+/**
+ * Escape raw control characters that appear inside JSON string literals.
+ *
+ * Models routinely emit multi-line markdown directly inside a JSON string:
+ *
+ *   { "recipe_markdown": "
+ *   # Title
+ *   ..." }
+ *
+ * which is invalid JSON ("Bad control character in string literal") even though
+ * the intent is unambiguous. Walk the text tracking string/escape state and
+ * escape the offending characters so JSON.parse can recover the envelope,
+ * rather than discarding a complete clinical synthesis over a newline.
+ */
+function escapeControlCharsInStrings(s) {
+  let out = ''
+  let inString = false
+  let escaped = false
+
+  for (const ch of s) {
+    if (escaped) {
+      out += ch
+      escaped = false
+      continue
+    }
+    if (ch === '\\' && inString) {
+      out += ch
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      out += ch
+      continue
+    }
+    if (inString && ch < ' ') {
+      if (ch === '\n') out += '\\n'
+      else if (ch === '\r') out += '\\r'
+      else if (ch === '\t') out += '\\t'
+      else out += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`
+      continue
+    }
+    out += ch
+  }
+
+  return out
+}
+
 function extractJsonObject(rawText) {
   if (!rawText || typeof rawText !== 'string') return null
   let s = rawText.trim()
@@ -386,8 +438,16 @@ function extractJsonObject(rawText) {
   const first = s.indexOf('{')
   const last = s.lastIndexOf('}')
   if (first === -1 || last === -1 || last <= first) return null
+  const candidate = s.slice(first, last + 1)
+
   try {
-    return JSON.parse(s.slice(first, last + 1))
+    return JSON.parse(candidate)
+  } catch {
+    // Fall through to the repair pass.
+  }
+
+  try {
+    return JSON.parse(escapeControlCharsInStrings(candidate))
   } catch {
     return null
   }

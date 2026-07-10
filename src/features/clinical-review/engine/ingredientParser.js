@@ -176,6 +176,75 @@ export function normalizeIngredient(raw) {
  * Detect the original serving count from raw source text. Returns:
  *   { servings: number | null, estimated: boolean }
  */
+/**
+ * Parse the leading amount of an ingredient line into a number.
+ * Handles "2", "1.5", "1/2", and mixed numbers like "1 1/2". Returns null when
+ * the line has no leading quantity ("Salt to taste").
+ */
+export function parseQuantity(raw) {
+  if (!raw) return null
+  const s = String(raw).trim()
+
+  const mixed = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)/)
+  if (mixed) return Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3])
+
+  const fraction = s.match(/^(\d+)\s*\/\s*(\d+)/)
+  if (fraction) return Number(fraction[1]) / Number(fraction[2])
+
+  const decimal = s.match(/^(\d+(?:\.\d+)?)/)
+  if (decimal) return Number(decimal[1])
+
+  return null
+}
+
+/**
+ * Map normalized ingredient name -> leading quantity, from a generated
+ * **LOADOUT** markdown table (| ingredient | quantity |).
+ */
+export function parseLoadoutQuantities(markdown) {
+  const out = new Map()
+  const block = (markdown ?? '').match(/\*\*LOADOUT\*\*[^\n]*\n([\s\S]+?)(?=\n\*\*[A-Z]|$)/i)
+  if (!block) return out
+
+  for (const line of block[1].split('\n')) {
+    const m = line.match(/^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/)
+    if (!m) continue
+    const name = m[1].trim()
+    if (!name || /^[-:]+$/.test(name) || /^ingredient$/i.test(name)) continue
+    const qty = parseQuantity(m[2])
+    if (qty === null) continue
+    const key = normalizeIngredient(name)
+    if (key) out.set(key, qty)
+  }
+  return out
+}
+
+/**
+ * Map normalized ingredient name -> leading quantity, from a raw pasted recipe's
+ * bulleted ingredient lines ("- 4 boneless chicken thighs (about 1.5 lb)").
+ */
+export function parseSourceQuantities(text) {
+  const out = new Map()
+  if (!text || typeof text !== 'string') return out
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim().replace(/^[-*•]\s*/, '')
+    if (!line) continue
+    const qty = parseQuantity(line)
+    if (qty === null) continue
+    // Strip the leading amount + unit so the remainder is the ingredient name.
+    const name = line
+      .replace(/^\d+\s+\d+\s*\/\s*\d+/, '')
+      .replace(/^\d+\s*\/\s*\d+/, '')
+      .replace(/^\d+(?:\.\d+)?/, '')
+      .replace(/^\s*(?:g|kg|oz|lb|lbs|ml|l|cups?|tablespoons?|tbsp|teaspoons?|tsp|cloves?|large|small|medium)\b/i, '')
+      .trim()
+    const key = normalizeIngredient(name)
+    if (key && !out.has(key)) out.set(key, qty)
+  }
+  return out
+}
+
 export function detectOriginalServings(text) {
   if (!text || typeof text !== 'string') return { servings: null, estimated: true }
 
