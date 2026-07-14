@@ -4,9 +4,9 @@
  * /api same-origin), so this only matters once frontend + API are on separate
  * hosts.
  *
- * No `cors` dependency: auth is a Bearer token (Authorization header), not
- * cookies, so we don't need Allow-Credentials — just echo the Origin when it's
- * on the allowlist and answer preflight. Allowlist = CORS_ALLOWED_ORIGINS
+ * No `cors` dependency: echo the Origin when it is on the allowlist, allow the
+ * frontend-gate HttpOnly cookie, and answer preflight. Clerk authentication
+ * continues to use its Bearer token. Allowlist = CORS_ALLOWED_ORIGINS
  * (comma-separated) + APP_BASE_URL + localhost dev. Set CORS_ALLOWED_ORIGINS to
  * '*' to allow any origin (handy while wiring up; tighten before launch).
  */
@@ -34,6 +34,7 @@ export function createCorsMiddleware() {
 
     if (origin && (allowAll || allowlist.has(normalizeOrigin(origin)))) {
       res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Access-Control-Allow-Credentials', 'true')
       res.setHeader('Vary', 'Origin')
     }
 

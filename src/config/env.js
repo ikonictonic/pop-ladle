@@ -8,6 +8,23 @@ function parsePort(value) {
   return port
 }
 
+function parsePositiveNumber(value, fallback, name) {
+  const parsed = Number(value === undefined || value === '' ? fallback : value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive number. Received: ${value}`)
+  }
+  return parsed
+}
+
+const frontendGatePassword = process.env.FRONTEND_GATE_PASSWORD ?? ''
+const frontendGateSessionSecret = process.env.FRONTEND_GATE_SESSION_SECRET ?? ''
+
+if (frontendGatePassword && frontendGateSessionSecret.length < 32) {
+  throw new Error(
+    'FRONTEND_GATE_SESSION_SECRET must be at least 32 characters when FRONTEND_GATE_PASSWORD is set.',
+  )
+}
+
 export const env = Object.freeze({
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   HOST: process.env.HOST ?? '0.0.0.0',
@@ -33,6 +50,15 @@ export const env = Object.freeze({
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
   // and localhost dev are always allowed. Set to '*' to allow any origin.
   CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS ?? '',
+  // Temporary whole-app preview gate. The password remains server-side; a
+  // successful unlock receives a signed HttpOnly cookie. Empty = gate off.
+  FRONTEND_GATE_PASSWORD: frontendGatePassword,
+  FRONTEND_GATE_SESSION_SECRET: frontendGateSessionSecret,
+  FRONTEND_GATE_SESSION_HOURS: parsePositiveNumber(
+    process.env.FRONTEND_GATE_SESSION_HOURS,
+    12,
+    'FRONTEND_GATE_SESSION_HOURS',
+  ),
   // Stripe billing — server-side only. Unset STRIPE_SECRET_KEY degrades the
   // billing endpoints to 503 BILLING_NOT_CONFIGURED (matching the S3/Resend
   // posture); the webhook additionally requires STRIPE_WEBHOOK_SECRET for
