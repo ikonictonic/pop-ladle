@@ -30,6 +30,7 @@ import {
   createFrontendGateRouter,
   requireFrontendGateAccess,
 } from '../features/frontend-gate/frontendGateRoutes.js'
+import { createPublicContentRouter } from '../features/public-content/publicContentRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -47,6 +48,12 @@ export function createApp() {
   app.use(createRequestContextMiddleware())
   app.use('/api/v1', createFrontendGateRouter())
   app.use('/api/v1', requireFrontendGateAccess)
+
+  // Public marketing content (the /temp site). Mounted after the frontend gate —
+  // so the private beta password still covers it — but BEFORE Clerk, so it is
+  // readable with no session. Serves published master-library recipes only.
+  app.use('/api/v1', createPublicContentRouter())
+
   app.use(createClerkRequestMiddleware())
 
   app.get('/', (_req, res) => {
@@ -103,6 +110,8 @@ export function createApp() {
         redeemBetaInvite: '/api/v1/beta-invites/redeem',
         platformRecipes: '/api/v1/platform-recipes',
         platformRecipe: '/api/v1/platform-recipes/:recipeId',
+        publicRecipes: '/api/v1/public/recipes',
+        publicRecipe: '/api/v1/public/recipes/:recipeId',
         copyPlatformRecipe: '/api/v1/households/:householdId/platform-recipes/:recipeId/copy',
         recipeReviewQueue: '/api/v1/admin/recipe-review-queue',
         publishRecipe: '/api/v1/admin/recipes/:recipeId/publish',
