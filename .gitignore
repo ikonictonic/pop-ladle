@@ -7,3 +7,4 @@ dist/
 *.log
 Pop & Ladle Design System-07142026
 pop-ladle-homepage
+.gitignore

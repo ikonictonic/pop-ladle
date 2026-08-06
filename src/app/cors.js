@@ -16,8 +16,26 @@ import { env } from '../config/env.js'
 const DEFAULT_DEV_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']
 const ALLOWED_METHODS = 'GET,POST,PATCH,PUT,DELETE,OPTIONS'
 
+// The product domain family is always allowed over https: the apex and every
+// subdomain (popladle.com, www., app., dev., ...). This avoids exact-origin
+// whack-a-mole (e.g. www vs apex) across the marketing site, app, and staging.
+const ALLOWED_ORIGIN_SUFFIX = '.popladle.com'
+const ALLOWED_APEX = 'popladle.com'
+
 function normalizeOrigin(value) {
   return typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
+}
+
+function isProductDomain(origin) {
+  try {
+    const { protocol, hostname } = new URL(origin)
+    return (
+      protocol === 'https:' &&
+      (hostname === ALLOWED_APEX || hostname.endsWith(ALLOWED_ORIGIN_SUFFIX))
+    )
+  } catch {
+    return false
+  }
 }
 
 export function createCorsMiddleware() {
@@ -32,7 +50,8 @@ export function createCorsMiddleware() {
   return function cors(req, res, next) {
     const origin = req.headers.origin
 
-    if (origin && (allowAll || allowlist.has(normalizeOrigin(origin)))) {
+    const normalizedOrigin = normalizeOrigin(origin)
+    if (origin && (allowAll || allowlist.has(normalizedOrigin) || isProductDomain(normalizedOrigin))) {
       res.setHeader('Access-Control-Allow-Origin', origin)
       res.setHeader('Access-Control-Allow-Credentials', 'true')
       res.setHeader('Vary', 'Origin')
