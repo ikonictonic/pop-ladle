@@ -18,6 +18,7 @@ import { createHydrationRouter } from '../features/hydration/hydrationRoutes.js'
 import { createGroceryRouter } from '../features/grocery/groceryRoutes.js'
 import { createNotesRouter } from '../features/notes/notesRoutes.js'
 import { createNotificationRouter } from '../features/notifications/notificationRoutes.js'
+import { createAccountSavesRouter } from '../features/account-saves/accountSavesRoutes.js'
 import { createRecipeFavoriteRouter } from '../features/recipe-favorites/recipeFavoriteRoutes.js'
 import { createHouseholdSettingsRouter } from '../features/household-settings/householdSettingsRoutes.js'
 import { createTaxonomyRouter } from '../features/taxonomy/taxonomyRoutes.js'
@@ -128,6 +129,9 @@ export function createApp() {
         notifications: '/api/v1/notifications',
         notificationUnreadCount: '/api/v1/notifications/unread-count',
         notification: '/api/v1/notifications/:notificationId',
+        accountSaves: '/api/v1/account/saves',
+        accountSavesAdopt: '/api/v1/account/saves/adopt',
+        accountSave: '/api/v1/account/saves/:key',
         billingCheckout: '/api/v1/billing/checkout-session',
         billingPortal: '/api/v1/billing/portal-session',
         billingWebhook: '/api/v1/billing/webhook',
@@ -171,6 +175,7 @@ export function createApp() {
   app.use('/api/v1', createGroceryRouter())
   app.use('/api/v1', createNotesRouter())
   app.use('/api/v1', createNotificationRouter())
+  app.use('/api/v1', createAccountSavesRouter())
   app.use('/api/v1', createRecipeFavoriteRouter())
   app.use('/api/v1', createHouseholdSettingsRouter())
   app.use('/api/v1', createTaxonomyRouter())
