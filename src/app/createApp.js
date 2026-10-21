@@ -32,6 +32,11 @@ import {
   requireFrontendGateAccess,
 } from '../features/frontend-gate/frontendGateRoutes.js'
 import { createPublicContentRouter } from '../features/public-content/publicContentRoutes.js'
+import {
+  createSubscriberRouter,
+  createSubscriberWebhookRouter,
+} from '../features/subscribers/subscriberRoutes.js'
+import { createSiteContactRouter } from '../features/site-contact/siteContactRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
 import { createCorsMiddleware } from './cors.js'
 
@@ -44,9 +49,18 @@ export function createApp() {
   // The Stripe webhook verifies signatures against the RAW body, so its router
   // must be mounted before express.json() consumes the stream.
   app.use('/api/v1', createBillingWebhookRouter())
+  // Resend webhook: same raw-body requirement as Stripe.
+  app.use('/api/v1', createSubscriberWebhookRouter())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
   app.use(createRequestContextMiddleware())
+
+  // Public site (popladle.com) signup, subscriber preference and contact form.
+  // Mounted BEFORE the frontend gate: the landing page is public even while
+  // the app sits behind the beta password.
+  app.use('/api/v1', createSubscriberRouter())
+  app.use('/api/v1', createSiteContactRouter())
+
   app.use('/api/v1', createFrontendGateRouter())
   app.use('/api/v1', requireFrontendGateAccess)
 
@@ -135,6 +149,12 @@ export function createApp() {
         billingCheckout: '/api/v1/billing/checkout-session',
         billingPortal: '/api/v1/billing/portal-session',
         billingWebhook: '/api/v1/billing/webhook',
+        earlyAccessSignup: '/api/v1/early-access',
+        subscriberPreference: '/api/v1/subscriber/preference',
+        subscriberConfirm: '/api/v1/subscriber/confirm',
+        subscriberWithdraw: '/api/v1/subscriber/withdraw',
+        subscriberResendEvents: '/api/v1/subscriber/resend-events',
+        siteContact: '/api/v1/contact',
         adminBilling: '/api/v1/admin/billing/* (overview, events, sync-catalog)',
       },
     })
