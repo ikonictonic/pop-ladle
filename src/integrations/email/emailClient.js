@@ -21,32 +21,37 @@ export function getEmailTransport() {
  * Send one transactional email.
  * Resolves to { delivered, transport, id, error }. Throws only on a transport
  * error from Resend — callers that want best-effort delivery should catch.
+ * `from` overrides EMAIL_FROM, `headers` adds custom email headers (e.g.
+ * List-Unsubscribe), and `idempotencyKey` makes Resend drop a repeat send
+ * within 24 hours.
  */
-export async function sendEmail({ to, subject, html, text, replyTo, signal }) {
+export async function sendEmail({ to, subject, html, text, replyTo, from, headers, idempotencyKey, signal }) {
   const transport = getEmailTransport()
 
   if (transport === 'resend') {
-    return sendViaResend({ to, subject, html, text, replyTo, signal })
+    return sendViaResend({ to, subject, html, text, replyTo, from, headers, idempotencyKey, signal })
   }
 
   return sendViaConsole({ to, subject, text })
 }
 
-async function sendViaResend({ to, subject, html, text, replyTo, signal }) {
+async function sendViaResend({ to, subject, html, text, replyTo, from, headers, idempotencyKey, signal }) {
   const body = {
-    from: env.EMAIL_FROM,
+    from: from || env.EMAIL_FROM,
     to: Array.isArray(to) ? to : [to],
     subject,
     html,
     text,
   }
   if (replyTo) body.reply_to = replyTo
+  if (headers) body.headers = headers
 
   const response = await fetch(RESEND_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: JSON.stringify(body),
     signal,

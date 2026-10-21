@@ -25,6 +25,12 @@ if (frontendGatePassword && frontendGateSessionSecret.length < 32) {
   )
 }
 
+const subscriberTokenSecret = process.env.SUBSCRIBER_TOKEN_SECRET ?? ''
+
+if (subscriberTokenSecret && subscriberTokenSecret.length < 32) {
+  throw new Error('SUBSCRIBER_TOKEN_SECRET must be at least 32 characters.')
+}
+
 export const env = Object.freeze({
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   HOST: process.env.HOST ?? '0.0.0.0',
@@ -47,6 +53,21 @@ export const env = Object.freeze({
   EMAIL_FROM: process.env.EMAIL_FROM ?? 'Pop & Ladle <onboarding@resend.dev>',
   // Public app origin used to build absolute invite links in emails.
   APP_BASE_URL: process.env.APP_BASE_URL ?? 'http://localhost:5173',
+  // Early-access subscribers from the public site (features/subscribers).
+  // MARKETING_SITE_URL builds the confirm/preferences links in their emails.
+  // SUBSCRIBER_TOKEN_SECRET signs preference/unsubscribe links; unset = the
+  // subscriber endpoints return 503. SUBSCRIBER_EMAIL_FROM falls back to
+  // EMAIL_FROM. RESEND_WEBHOOK_SECRET (whsec_...) verifies Resend webhooks.
+  // RESEND_SEGMENT_ID is the optional segment confirmed subscribers join.
+  // MAILING_ADDRESS is the postal address marketing email must carry.
+  // CONTACT_INBOX receives contact-form messages; unset = that form returns 503.
+  MARKETING_SITE_URL: process.env.MARKETING_SITE_URL ?? 'http://localhost:3000',
+  SUBSCRIBER_TOKEN_SECRET: subscriberTokenSecret,
+  SUBSCRIBER_EMAIL_FROM: process.env.SUBSCRIBER_EMAIL_FROM ?? '',
+  RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET ?? '',
+  RESEND_SEGMENT_ID: process.env.RESEND_SEGMENT_ID ?? '',
+  MAILING_ADDRESS: process.env.MAILING_ADDRESS ?? '',
+  CONTACT_INBOX: process.env.CONTACT_INBOX ?? '',
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
   // and localhost dev are always allowed. Set to '*' to allow any origin.
   CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS ?? '',
