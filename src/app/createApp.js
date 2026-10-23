@@ -34,7 +34,6 @@ import {
 import { createPublicContentRouter } from '../features/public-content/publicContentRoutes.js'
 import {
   createSubscriberRouter,
-  createSubscriberWebhookRouter,
 } from '../features/subscribers/subscriberRoutes.js'
 import { createSiteContactRouter } from '../features/site-contact/siteContactRoutes.js'
 import { createRequestContextMiddleware } from './requestContext.js'
@@ -49,8 +48,6 @@ export function createApp() {
   // The Stripe webhook verifies signatures against the RAW body, so its router
   // must be mounted before express.json() consumes the stream.
   app.use('/api/v1', createBillingWebhookRouter())
-  // Resend webhook: same raw-body requirement as Stripe.
-  app.use('/api/v1', createSubscriberWebhookRouter())
   app.use(express.json({ limit: '1mb' }))
   app.use(express.urlencoded({ extended: false }))
   app.use(createRequestContextMiddleware())
@@ -153,7 +150,7 @@ export function createApp() {
         subscriberPreference: '/api/v1/subscriber/preference',
         subscriberConfirm: '/api/v1/subscriber/confirm',
         subscriberWithdraw: '/api/v1/subscriber/withdraw',
-        subscriberResendEvents: '/api/v1/subscriber/resend-events',
+        subscriberPlunkEvents: '/api/v1/subscriber/plunk-events',
         siteContact: '/api/v1/contact',
         adminBilling: '/api/v1/admin/billing/* (overview, events, sync-catalog)',
       },

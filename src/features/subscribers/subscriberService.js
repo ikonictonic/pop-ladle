@@ -1,13 +1,13 @@
 import { env } from '../../config/env.js'
 import { getDatabasePool } from '../../database/pool.js'
 import { createHttpError } from '../households/householdAccess.js'
-import { getEmailTransport, sendEmail } from '../../integrations/email/emailClient.js'
 import {
-  sendResendEvent,
-  updateResendContact,
-  upsertResendContact,
-} from '../../integrations/email/resendContacts.js'
-import { verifyResendWebhook } from '../../integrations/email/resendWebhook.js'
+  getPlunkTransport,
+  sendPlunkEmail,
+  trackPlunkEvent,
+  upsertPlunkContact,
+  verifyPlunkWebhook,
+} from '../../integrations/email/plunk.js'
 import {
   renderSubscriberConfirmEmail,
   renderWelcomePlannerEmail,
@@ -27,8 +27,9 @@ import {
 //
 //   signup ──► pending ──(emailed link)──► confirmed ──► withdrawn
 //
-//   * Double opt-in everywhere. A pending address never reaches Resend; the
-//     Resend contact (broadcasts, automations) is created on confirmation.
+//   * Double opt-in everywhere. Sending the confirmation email makes the
+//     address an unsubscribed Plunk contact; only confirmation subscribes it
+//     (campaigns, workflows).
 //   * email_subscribers is the consent source of truth. Every change appends
 //     to email_subscriber_events with the exact consent wording and versions.
 //   * Withdrawals and suppressions survive repeated signups and preference
@@ -36,7 +37,7 @@ import {
 //     a suppression (bounce/complaint).
 //   * Repeats are idempotent: duplicate signups within a minute reuse the
 //     pending link, a confirmation token works once, the welcome email is sent
-//     once, and webhook deliveries are de-duplicated by svix-id.
+//     once, and webhook deliveries are de-duplicated by Plunk execution id.
 //   * The interest question is optional, about kitchen help, never medical.
 // =============================================================================
 
@@ -129,8 +130,10 @@ function requireSubscriberService() {
   if (!db) {
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
-  // In production a console email transport would silently drop confirmations.
-  if (!env.SUBSCRIBER_TOKEN_SECRET || (env.NODE_ENV === 'production' && getEmailTransport() !== 'resend')) {
+  // In production a console transport would silently drop confirmations, and
+  // Plunk sends only from a verified domain, so the sender must be explicit.
+  const canSend = getPlunkTransport() === 'plunk' && Boolean(env.SUBSCRIBER_EMAIL_FROM)
+  if (!env.SUBSCRIBER_TOKEN_SECRET || (env.NODE_ENV === 'production' && !canSend)) {
     throw createHttpError(503, 'SUBSCRIBERS_NOT_CONFIGURED', 'The subscriber service is not configured.', true)
   }
   return db
@@ -158,17 +161,17 @@ async function recordEvent(queryable, subscriberId, eventType, detail = {}) {
   )
 }
 
-// Resend sync runs after the consent change commits. A failure is logged and
+// Plunk sync runs after the consent change commits. A failure is logged and
 // recorded, never surfaced: the ledger is already correct.
 async function recordSyncFailure(db, subscriberId, step, err) {
   console.error(JSON.stringify({
     level: 'error',
-    message: 'Subscriber sync to Resend failed',
+    message: 'Subscriber sync to Plunk failed',
     subscriberId,
     step,
     error: err?.message ?? String(err),
   }))
-  await recordEvent(db, subscriberId, 'resend_sync_failed', {
+  await recordEvent(db, subscriberId, 'plunk_sync_failed', {
     step,
     error: String(err?.message ?? err).slice(0, 300),
   }).catch(() => {})
@@ -179,10 +182,10 @@ function siteUrl(path) {
 }
 
 function subscriberEmailFrom() {
-  return env.SUBSCRIBER_EMAIL_FROM || undefined
+  return env.SUBSCRIBER_EMAIL_FROM || env.EMAIL_FROM
 }
 
-function interestProperties(interest, source, updatedAt) {
+function interestData(interest, source, updatedAt) {
   return {
     primary_interest: interest,
     interest_source: source,
@@ -289,7 +292,7 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
       confirmUrl: siteUrl(`/confirm-email?token=${confirmationToken}`),
     })
     try {
-      const result = await sendEmail({ to: input.email, from: subscriberEmailFrom(), ...content })
+      const result = await sendPlunkEmail({ to: input.email, from: subscriberEmailFrom(), ...content })
       await recordEvent(db, subscriber.id, 'confirmation_email_sent', { transport: result.transport })
     } catch (err) {
       await recordEvent(db, subscriber.id, 'confirmation_email_failed', {
@@ -354,13 +357,13 @@ export async function saveSubscriberPreference(payload) {
     return { row: updated.rows[0], source: interestSource, startMealPlanning: start }
   })
 
-  // Interests reach Resend only for confirmed, unsuppressed contacts; a pending
+  // Interests reach Plunk only for confirmed, unsuppressed contacts; a pending
   // subscriber's answer is sent along when they confirm.
   if (row.consentStatus === 'confirmed' && !row.suppressedAt) {
     try {
-      await updateResendContact({
+      await upsertPlunkContact({
         email: row.email,
-        properties: interestProperties(interest, source, row.preferenceUpdatedAt),
+        data: interestData(interest, source, row.preferenceUpdatedAt),
       })
     } catch (err) {
       await recordSyncFailure(db, row.id, 'preference', err)
@@ -373,7 +376,7 @@ export async function saveSubscriberPreference(payload) {
 
 async function startMealPlanningSequence(db, subscriber) {
   try {
-    await sendResendEvent({ event: MEAL_PLANNING_EVENT, email: subscriber.email })
+    await trackPlunkEvent({ event: MEAL_PLANNING_EVENT, email: subscriber.email })
     await recordEvent(db, subscriber.id, 'meal_planning_sequence_started')
   } catch (err) {
     // Release the claim so a later confirmation or preference save retries.
@@ -454,15 +457,15 @@ export async function confirmSubscriberEmail(payload) {
 
   const { subscriber } = outcome
   try {
-    await upsertResendContact({
+    await upsertPlunkContact({
       email: subscriber.email,
-      unsubscribed: false,
-      properties: {
+      subscribed: true,
+      data: {
         signup_source: CONSENT_SOURCE,
         signup_locale: SIGNUP_LOCALE,
         onboarding_stage: 'subscribed',
         ...(subscriber.primaryInterest
-          ? interestProperties(subscriber.primaryInterest, 'thank_you_page', subscriber.preferenceUpdatedAt)
+          ? interestData(subscriber.primaryInterest, 'thank_you_page', subscriber.preferenceUpdatedAt)
           : {}),
       },
     })
@@ -485,7 +488,7 @@ async function sendWelcomeEmail(db, subscriber) {
   })
 
   try {
-    await sendEmail({
+    await sendPlunkEmail({
       to: subscriber.email,
       from: subscriberEmailFrom(),
       ...content,
@@ -547,10 +550,10 @@ export async function withdrawSubscriber(payload, query) {
 
   if (outcome.changed && outcome.row.confirmedAt) {
     try {
-      await updateResendContact({
+      await upsertPlunkContact({
         email: outcome.row.email,
-        unsubscribed: true,
-        properties: { onboarding_stage: 'withdrawn' },
+        subscribed: false,
+        data: { onboarding_stage: 'withdrawn' },
       })
     } catch (err) {
       await recordSyncFailure(db, subscriberId, 'contact_unsubscribe', err)
@@ -560,24 +563,48 @@ export async function withdrawSubscriber(payload, query) {
   return { status: 'withdrawn' }
 }
 
-// ---- POST /subscriber/resend-events (Resend webhook) ----
+// ---- POST /subscriber/plunk-events (Plunk workflow Webhook steps) ----
+
+// One Plunk workflow per trigger, each a Webhook step posting here with
+// ?event=<trigger>: the default payload does not name the trigger.
+const WEBHOOK_EVENTS = Object.freeze(['contact.subscribed', 'contact.unsubscribed', 'email.bounce', 'email.complaint'])
+
+/** Read the default Webhook step body: { contact, workflow, execution, event }. */
+function readPlunkWebhook(body, query) {
+  const email = body?.contact?.email
+  return {
+    type: WEBHOOK_EVENTS.includes(query?.event) ? query.event : null,
+    email: typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : null,
+    executionId: typeof body?.execution?.id === 'string' ? body.execution.id : null,
+    eventTime: Date.parse(body?.execution?.startedAt ?? ''),
+    reason: body?.event?.reason,
+    bounceType: body?.event?.bounceType,
+  }
+}
 
 /**
  * Pure decision for one webhook event against one subscriber row.
  * Returns { action, ... } where action is withdraw | resubscribe | suppress |
  * push_unsubscribed | ignore.
  */
-function decideWebhookAction(subscriber, { type, unsubscribed, eventTime }) {
-  if (type === 'email.bounced' || type === 'email.complained' || type === 'email.suppressed') {
+function decideWebhookAction(subscriber, { type, reason, bounceType, eventTime }) {
+  let suppression = null
+  if (type === 'email.complaint') suppression = 'complaint'
+  else if (type === 'email.bounce' && bounceType === 'Permanent') suppression = 'bounce'
+  // Plunk unsubscribes a contact on its own after a bounce or complaint.
+  else if (type === 'contact.unsubscribed' && (reason === 'bounce' || reason === 'complaint')) suppression = reason
+
+  if (suppression) {
     if (subscriber.suppressedAt) return { action: 'ignore', reason: 'already_suppressed' }
-    return { action: 'suppress', reason: type.slice('email.'.length) }
+    return { action: 'suppress', reason: suppression }
   }
 
-  if (type !== 'contact.updated' || typeof unsubscribed !== 'boolean') {
+  if (type === 'email.bounce') return { action: 'ignore', reason: 'transient_bounce' }
+  if (type !== 'contact.subscribed' && type !== 'contact.unsubscribed') {
     return { action: 'ignore', reason: 'unhandled_event' }
   }
 
-  // Our own Resend updates echo back here; anything older than the latest
+  // Our own Plunk updates echo back here; anything older than the latest
   // consent change in the ledger is stale.
   const lastChange = Math.max(
     subscriber.confirmedAt ? new Date(subscriber.confirmedAt).getTime() : 0,
@@ -585,99 +612,90 @@ function decideWebhookAction(subscriber, { type, unsubscribed, eventTime }) {
   )
   if (Number.isFinite(eventTime) && eventTime <= lastChange) return { action: 'ignore', reason: 'stale' }
 
-  if (unsubscribed) {
+  if (type === 'contact.unsubscribed') {
     return subscriber.consentStatus === 'confirmed'
       ? { action: 'withdraw' }
       : { action: 'ignore', reason: 'already_unsubscribed' }
   }
 
   if (subscriber.consentStatus === 'confirmed') return { action: 'ignore', reason: 'in_sync' }
-  // Opted back in on Resend's preference page after an earlier confirmation.
+  // Resubscribed on Plunk's page after an earlier confirmation.
   if (subscriber.consentStatus === 'withdrawn' && subscriber.confirmedAt && !subscriber.suppressedAt) {
     return { action: 'resubscribe' }
   }
-  // Resend marked an unconfirmed or suppressed address subscribed: undo it.
+  // Plunk marked an unconfirmed or suppressed address subscribed: undo it.
   return { action: 'push_unsubscribed' }
 }
 
-function webhookRecipients(event) {
-  const data = event?.data ?? {}
-  const raw = event?.type === 'contact.updated' ? [data.email] : Array.isArray(data.to) ? data.to : [data.to]
-  return [...new Set(raw.filter((v) => typeof v === 'string').map((v) => v.trim().toLowerCase()))]
-}
-
-export async function applyResendWebhook({ rawBody, headers }) {
-  if (!env.RESEND_WEBHOOK_SECRET) {
-    throw createHttpError(503, 'WEBHOOK_NOT_CONFIGURED', 'RESEND_WEBHOOK_SECRET is not set.', true)
+export async function applyPlunkWebhook({ body, query, headers }) {
+  if (!env.PLUNK_WEBHOOK_SECRET) {
+    throw createHttpError(503, 'WEBHOOK_NOT_CONFIGURED', 'PLUNK_WEBHOOK_SECRET is not set.', true)
   }
   const db = getDatabasePool()
   if (!db) {
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
-  if (!Buffer.isBuffer(rawBody) || !verifyResendWebhook({ rawBody, headers, secret: env.RESEND_WEBHOOK_SECRET })) {
-    throw createHttpError(400, 'WEBHOOK_SIGNATURE_INVALID', 'Resend webhook signature verification failed.', true)
+  if (!verifyPlunkWebhook({ headers, secret: env.PLUNK_WEBHOOK_SECRET })) {
+    throw createHttpError(401, 'WEBHOOK_UNAUTHORIZED', 'Plunk webhook secret did not match.', true)
   }
 
-  let event
-  try {
-    event = JSON.parse(rawBody.toString('utf8'))
-  } catch {
-    throw createHttpError(400, 'INVALID_WEBHOOK_PAYLOAD', 'Webhook body is not JSON.', true)
+  // A non-2xx reply fails the Webhook step in Plunk's execution log, which is
+  // where a misconfigured workflow shows up.
+  const event = readPlunkWebhook(body, query)
+  if (!event.type) {
+    throw createHttpError(400, 'UNKNOWN_WEBHOOK_EVENT', `Add ?event= to the webhook URL, one of: ${WEBHOOK_EVENTS.join(', ')}.`, true)
   }
-
-  const type = typeof event?.type === 'string' ? event.type : 'unknown'
-  const eventTime = Date.parse(event?.data?.updated_at ?? event?.created_at ?? '')
-  const unsubscribed = event?.data?.unsubscribed
+  if (!event.email || !event.executionId) {
+    throw createHttpError(400, 'INVALID_WEBHOOK_PAYLOAD', 'Expected the default Plunk webhook body (no custom body).', true)
+  }
 
   const outcome = await inTransaction(db, async (client) => {
     const receipt = await client.query(
       'insert into email_webhook_receipts (webhook_id, event_type) values ($1, $2) on conflict do nothing',
-      [headers['svix-id'], type],
+      [`plunk:${event.executionId}`, event.type],
     )
-    if (receipt.rowCount === 0) return { status: 'duplicate', pushUnsubscribed: [] }
+    if (receipt.rowCount === 0) return { status: 'duplicate', pushUnsubscribed: null }
 
-    const pushUnsubscribed = []
-    for (const email of webhookRecipients(event)) {
-      const current = await client.query(`select ${SUBSCRIBER_COLUMNS} from email_subscribers where email = $1 for update`, [email])
-      const row = current.rows[0]
-      if (!row) continue
+    const current = await client.query(`select ${SUBSCRIBER_COLUMNS} from email_subscribers where email = $1 for update`, [event.email])
+    const row = current.rows[0]
+    if (!row) return { status: 'processed', pushUnsubscribed: null }
 
-      const decision = decideWebhookAction(row, { type, unsubscribed, eventTime })
-      if (decision.action === 'withdraw') {
-        await client.query(
-          `
-            update email_subscribers
-            set consent_status = 'withdrawn', withdrawn_at = now(),
-                confirmation_token_hash = null, confirmation_expires_at = null, updated_at = now()
-            where id = $1
-          `,
-          [row.id],
-        )
-        await recordEvent(client, row.id, 'withdrawn', { source: 'resend', webhookType: type })
-      } else if (decision.action === 'resubscribe') {
-        await client.query(
-          "update email_subscribers set consent_status = 'confirmed', updated_at = now() where id = $1",
-          [row.id],
-        )
-        await recordEvent(client, row.id, 'resubscribed', { source: 'resend' })
-      } else if (decision.action === 'suppress') {
-        await client.query(
-          'update email_subscribers set suppressed_at = now(), suppression_reason = $2, updated_at = now() where id = $1',
-          [row.id, decision.reason],
-        )
-        await recordEvent(client, row.id, 'suppressed', { reason: decision.reason, source: 'resend' })
-        pushUnsubscribed.push(row)
-      } else if (decision.action === 'push_unsubscribed') {
-        await recordEvent(client, row.id, 'resend_out_of_sync', { consentStatus: row.consentStatus })
-        pushUnsubscribed.push(row)
-      }
+    const decision = decideWebhookAction(row, event)
+    if (decision.action === 'withdraw') {
+      await client.query(
+        `
+          update email_subscribers
+          set consent_status = 'withdrawn', withdrawn_at = now(),
+              confirmation_token_hash = null, confirmation_expires_at = null, updated_at = now()
+          where id = $1
+        `,
+        [row.id],
+      )
+      await recordEvent(client, row.id, 'withdrawn', { source: 'plunk', webhookType: event.type })
+    } else if (decision.action === 'resubscribe') {
+      await client.query(
+        "update email_subscribers set consent_status = 'confirmed', updated_at = now() where id = $1",
+        [row.id],
+      )
+      await recordEvent(client, row.id, 'resubscribed', { source: 'plunk' })
+    } else if (decision.action === 'suppress') {
+      await client.query(
+        'update email_subscribers set suppressed_at = now(), suppression_reason = $2, updated_at = now() where id = $1',
+        [row.id, decision.reason],
+      )
+      await recordEvent(client, row.id, 'suppressed', { reason: decision.reason, source: 'plunk' })
+      return { status: 'processed', pushUnsubscribed: row }
+    } else if (decision.action === 'push_unsubscribed') {
+      await recordEvent(client, row.id, 'plunk_out_of_sync', { consentStatus: row.consentStatus })
+      return { status: 'processed', pushUnsubscribed: row }
     }
-    return { status: 'processed', pushUnsubscribed }
+    return { status: 'processed', pushUnsubscribed: null }
   })
 
-  for (const row of outcome.pushUnsubscribed) {
+  if (outcome.pushUnsubscribed) {
+    const row = outcome.pushUnsubscribed
     try {
-      await updateResendContact({ email: row.email, unsubscribed: true })
+      await upsertPlunkContact({ email: row.email, subscribed: false })
     } catch (err) {
       await recordSyncFailure(db, row.id, 'webhook_unsubscribe', err)
     }
@@ -689,5 +707,5 @@ export async function applyResendWebhook({ rawBody, headers }) {
 export const __normalizeSignupInputForTests = normalizeSignupInput
 export const __normalizeInterestForTests = normalizeInterest
 export const __decideWebhookActionForTests = decideWebhookAction
-export const __webhookRecipientsForTests = webhookRecipients
+export const __readPlunkWebhookForTests = readPlunkWebhook
 export const __CONSENT_TEXTS_FOR_TESTS = CONSENT_TEXTS

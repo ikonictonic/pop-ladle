@@ -3,9 +3,9 @@
 -- October 2026).
 --
 -- Pop & Ladle owns consent: this table is the source of truth for whether an
--- address may receive marketing. Resend holds a contact only once an address
--- is confirmed (for broadcasts and the meal-planning automation) and is kept
--- in step from subscriberService. Double opt-in: a row stays 'pending' until
+-- address may receive marketing. Plunk subscribes a contact only once an
+-- address is confirmed (for campaigns and the meal-planning workflow) and is
+-- kept in step from subscriberService. Double opt-in: a row stays 'pending' until
 -- the emailed confirmation link is used. Bounces and complaints set
 -- suppressed_at, which no signup or confirmation can clear.
 --
@@ -84,7 +84,7 @@ create table if not exists email_signup_sessions (
 create index if not exists idx_email_signup_sessions_expiry
   on email_signup_sessions (expires_at);
 
--- Resend webhook deliveries already applied, keyed by the svix-id header, so a
+-- Plunk webhook deliveries already applied, keyed by workflow execution id, so a
 -- retried delivery produces one state transition.
 create table if not exists email_webhook_receipts (
   webhook_id text primary key,

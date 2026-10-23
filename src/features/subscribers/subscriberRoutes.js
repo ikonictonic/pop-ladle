@@ -1,7 +1,7 @@
-import express, { Router } from 'express'
+import { Router } from 'express'
 import { clientKey } from '../../shared/http/rateLimit.js'
 import {
-  applyResendWebhook,
+  applyPlunkWebhook,
   confirmSubscriberEmail,
   saveSubscriberPreference,
   submitEarlyAccessSignup,
@@ -19,7 +19,8 @@ function noStore(res) {
  * Mounted BEFORE the frontend gate and Clerk: the public landing page must be
  * able to sign people up while the app is still behind the beta password.
  * Nothing here reads req.authContext; access comes from the opaque signup
- * session, the emailed confirmation token, or the signed manage token.
+ * session, the emailed confirmation token, the signed manage token, or the
+ * Plunk webhook secret.
  */
 export function createSubscriberRouter() {
   const router = Router()
@@ -46,25 +47,13 @@ export function createSubscriberRouter() {
     res.status(200).json(await withdrawSubscriber(req.body, req.query))
   })
 
-  return router
-}
-
-/**
- * Resend webhook (contact.updated, email.bounced, email.complained,
- * email.suppressed). Needs the RAW body for the Svix signature check, so this
- * router is mounted BEFORE express.json(). No gate or Clerk: authenticity
- * comes from the signature.
- */
-export function createSubscriberWebhookRouter() {
-  const router = Router()
-
-  router.post(
-    '/subscriber/resend-events',
-    express.raw({ type: 'application/json' }),
-    async (req, res) => {
-      res.status(200).json(await applyResendWebhook({ rawBody: req.body, headers: req.headers }))
-    },
-  )
+  // Plunk workflow Webhook steps (contact.subscribed, contact.unsubscribed,
+  // email.bounce, email.complaint), each with ?event=<trigger>. Plunk does not
+  // sign them; the shared secret arrives as a Bearer token.
+  router.post('/subscriber/plunk-events', async (req, res) => {
+    noStore(res)
+    res.status(200).json(await applyPlunkWebhook({ body: req.body, query: req.query, headers: req.headers }))
+  })
 
   return router
 }
