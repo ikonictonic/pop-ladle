@@ -31,6 +31,12 @@ if (subscriberTokenSecret && subscriberTokenSecret.length < 32) {
   throw new Error('SUBSCRIBER_TOKEN_SECRET must be at least 32 characters.')
 }
 
+const plunkWebhookSecret = process.env.PLUNK_WEBHOOK_SECRET ?? ''
+
+if (plunkWebhookSecret && plunkWebhookSecret.length < 32) {
+  throw new Error('PLUNK_WEBHOOK_SECRET must be at least 32 characters.')
+}
+
 export const env = Object.freeze({
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   HOST: process.env.HOST ?? '0.0.0.0',
@@ -56,16 +62,20 @@ export const env = Object.freeze({
   // Early-access subscribers from the public site (features/subscribers).
   // MARKETING_SITE_URL builds the confirm/preferences links in their emails.
   // SUBSCRIBER_TOKEN_SECRET signs preference/unsubscribe links; unset = the
-  // subscriber endpoints return 503. SUBSCRIBER_EMAIL_FROM falls back to
-  // EMAIL_FROM. RESEND_WEBHOOK_SECRET (whsec_...) verifies Resend webhooks.
-  // RESEND_SEGMENT_ID is the optional segment confirmed subscribers join.
+  // subscriber endpoints return 503. Subscriber contacts, workflow events and
+  // email go through Plunk: PLUNK_SECRET_KEY (sk_) and PLUNK_PUBLIC_KEY (pk_,
+  // /v1/track only) together, else a console transport. SUBSCRIBER_EMAIL_FROM
+  // must be on a Plunk-verified domain (required in production).
+  // PLUNK_WEBHOOK_SECRET is the Bearer token Plunk's Webhook steps send.
   // MAILING_ADDRESS is the postal address marketing email must carry.
   // CONTACT_INBOX receives contact-form messages; unset = that form returns 503.
   MARKETING_SITE_URL: process.env.MARKETING_SITE_URL ?? 'http://localhost:3000',
   SUBSCRIBER_TOKEN_SECRET: subscriberTokenSecret,
   SUBSCRIBER_EMAIL_FROM: process.env.SUBSCRIBER_EMAIL_FROM ?? '',
-  RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET ?? '',
-  RESEND_SEGMENT_ID: process.env.RESEND_SEGMENT_ID ?? '',
+  PLUNK_API_URL: (process.env.PLUNK_API_URL || 'https://next-api.useplunk.com').replace(/\/+$/, ''),
+  PLUNK_SECRET_KEY: process.env.PLUNK_SECRET_KEY ?? '',
+  PLUNK_PUBLIC_KEY: process.env.PLUNK_PUBLIC_KEY ?? '',
+  PLUNK_WEBHOOK_SECRET: plunkWebhookSecret,
   MAILING_ADDRESS: process.env.MAILING_ADDRESS ?? '',
   CONTACT_INBOX: process.env.CONTACT_INBOX ?? '',
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
