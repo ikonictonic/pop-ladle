@@ -26,18 +26,22 @@ export function isStorageConfigured() {
   )
 }
 
+function buildClient(credentials) {
+  return new S3Client({
+    region: env.S3_REGION || 'auto',
+    endpoint: env.S3_ENDPOINT,
+    forcePathStyle: true,
+    credentials,
+  })
+}
+
 function getClient() {
   if (!isStorageConfigured()) return null
   if (cachedClient) return cachedClient
 
-  cachedClient = new S3Client({
-    region: env.S3_REGION || 'auto',
-    endpoint: env.S3_ENDPOINT,
-    forcePathStyle: true,
-    credentials: {
-      accessKeyId: env.S3_ACCESS_KEY_ID,
-      secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-    },
+  cachedClient = buildClient({
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
   })
   return cachedClient
 }
@@ -55,11 +59,12 @@ export async function createPresignedUploadUrl({ key, contentType, expiresIn = 3
 
 /**
  * Short-lived presigned GET URL for reading a private object. `bucket` defaults
- * to S3_BUCKET. `downloadName` makes the browser save it under that filename
+ * to S3_BUCKET, and `credentials` replace the S3_* pair for a bucket with its
+ * own token. `downloadName` makes the browser save it under that filename
  * instead of displaying it.
  */
-export async function createPresignedDownloadUrl({ key, bucket = env.S3_BUCKET, expiresIn = 900, downloadName }) {
-  const client = getClient()
+export async function createPresignedDownloadUrl({ key, bucket = env.S3_BUCKET, credentials, expiresIn = 900, downloadName }) {
+  const client = credentials ? buildClient(credentials) : getClient()
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,

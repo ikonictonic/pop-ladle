@@ -8,7 +8,7 @@ import {
   upsertPlunkContact,
   verifyPlunkWebhook,
 } from '../../integrations/email/plunk.js'
-import { createPresignedDownloadUrl, isStorageConfigured } from '../../integrations/storage/storageClient.js'
+import { createPresignedDownloadUrl } from '../../integrations/storage/storageClient.js'
 import { createRateLimiter } from '../../shared/http/rateLimit.js'
 import {
   createGuideToken,
@@ -518,7 +518,7 @@ async function sendWelcomeEmail(db, subscriber) {
  */
 export async function resolveGuideDownload(token) {
   const db = requireSubscriberService()
-  if (!isStorageConfigured() || !env.SUBSCRIBER_GUIDE_KEY) {
+  if (!env.S3_ENDPOINT || !env.SUBSCRIBER_GUIDE_ACCESS_KEY_ID || !env.SUBSCRIBER_GUIDE_SECRET_ACCESS_KEY) {
     throw createHttpError(503, 'GUIDE_NOT_CONFIGURED', 'The guide is not available right now.', true)
   }
 
@@ -534,6 +534,10 @@ export async function resolveGuideDownload(token) {
   const url = await createPresignedDownloadUrl({
     bucket: env.SUBSCRIBER_GUIDE_BUCKET,
     key: env.SUBSCRIBER_GUIDE_KEY,
+    credentials: {
+      accessKeyId: env.SUBSCRIBER_GUIDE_ACCESS_KEY_ID,
+      secretAccessKey: env.SUBSCRIBER_GUIDE_SECRET_ACCESS_KEY,
+    },
     expiresIn: GUIDE_FILE_URL_TTL_SECONDS,
     downloadName: GUIDE_FILENAME,
   })
