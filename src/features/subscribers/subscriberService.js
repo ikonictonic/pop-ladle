@@ -532,6 +532,7 @@ export async function resolveGuideDownload(token) {
   }
 
   const url = await createPresignedDownloadUrl({
+    bucket: env.SUBSCRIBER_GUIDE_BUCKET,
     key: env.SUBSCRIBER_GUIDE_KEY,
     expiresIn: GUIDE_FILE_URL_TTL_SECONDS,
     downloadName: GUIDE_FILENAME,
