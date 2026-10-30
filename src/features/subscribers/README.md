@@ -15,7 +15,7 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
 | `POST /api/v1/early-access` | rate limit + honeypot | Records a pending signup with consent evidence, emails the confirmation link, returns a 2-hour `signup_session` |
 | `POST /api/v1/subscriber/preference` | `signup_session` or `manage_token` | Saves `primary_interest`; never changes subscription state |
 | `POST /api/v1/subscriber/confirm` | emailed token (single use, 48 h) | Confirms, subscribes the Plunk contact, sends the welcome email once, starts the meal-planning workflow if that interest was chosen |
-| `GET /api/v1/subscriber/guide?token=…` | signed token (personal, 48 h) | Serves the *Everyday Caring in the Kitchen* PDF from `assets/`; a dead link redirects to the site's `/guide-link-expired` |
+| `GET /api/v1/subscriber/guide?token=…` | signed token (personal, 48 h) | Redirects a confirmed subscriber to a 5-minute presigned R2 URL for *Everyday Caring in the Kitchen* and records the download. An expired or tampered link, or a withdrawn or suppressed subscriber, goes to the site's `/guide-link-expired` |
 | `POST /api/v1/subscriber/withdraw` | `manage_token` (body or `?token=`) | Withdraws and unsubscribes in Plunk. Also takes RFC 8058 one-click POSTs |
 | `POST /api/v1/subscriber/plunk-events?event=…` | `Authorization: Bearer PLUNK_WEBHOOK_SECRET` | Reconciles `contact.subscribed`, `contact.unsubscribed`, `email.bounce`, `email.complaint` |
 | `POST /api/v1/contact` | rate limit + honeypot | Emails the message to `CONTACT_INBOX` (still through Resend); not stored, not a subscription |
@@ -49,8 +49,9 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
      button. Do not use `{{subscribeUrl}}`: that is Plunk's own hosted page, it
      overrides any value we send, and it would skip our consent ledger.
    - Pop & Ladle, Welcome Email (Marketing): `{{guideDownloadUrl}}`, a personal
-     link valid for 48 hours. Marketing emails must carry the postal address
-     (CAN-SPAM), which Plunk's footer does not add.
+     link valid for 48 hours. The PDF stays private in R2: set
+     `SUBSCRIBER_GUIDE_KEY` to its object key in `S3_BUCKET`. Marketing emails
+     must carry the postal address (CAN-SPAM), which Plunk's footer does not add.
 4. Optional: a dynamic segment "Early access" where `signup_source` is
    `early_access_landing`.
 5. Meal-planning workflow: trigger on the event `meal_planning.started` →

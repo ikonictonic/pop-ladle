@@ -22,8 +22,8 @@ import {
   createManageToken,
   createOpaqueToken,
   hashToken,
-  isGuideTokenValid,
   isOpaqueToken,
+  readGuideToken,
   readManageToken,
 } from './subscriberTokens.js'
 import { verifyPlunkWebhook } from '../../integrations/email/plunk.js'
@@ -113,24 +113,24 @@ test('manage tokens round-trip and reject tampering, other secrets and short sec
   assert.equal(readManageToken(undefined, SECRET), null)
 })
 
-test('guide tokens work until they expire and reject tampering and other secrets', () => {
+test('guide tokens identify their subscriber until they expire, and reject tampering and other secrets', () => {
   const now = Date.parse('2026-10-30T10:00:00Z')
   const hours = (n) => n * 60 * 60 * 1000
   const token = createGuideToken(SUBSCRIBER_ID, now + hours(48), SECRET)
 
-  assert.equal(isGuideTokenValid(token, SECRET, now), true)
-  assert.equal(isGuideTokenValid(token, SECRET, now + hours(47)), true)
-  assert.equal(isGuideTokenValid(token, SECRET, now + hours(48)), false)
+  assert.equal(readGuideToken(token, SECRET, now), SUBSCRIBER_ID)
+  assert.equal(readGuideToken(token, SECRET, now + hours(47)), SUBSCRIBER_ID)
+  assert.equal(readGuideToken(token, SECRET, now + hours(48)), null)
 
   const [id, expiresAt, signature] = token.split('.')
-  assert.equal(isGuideTokenValid(`${id}.${Number(expiresAt) + 3600}.${signature}`, SECRET, now), false)
-  assert.equal(isGuideTokenValid(`00000000-0000-4000-8000-000000000000.${expiresAt}.${signature}`, SECRET, now), false)
-  assert.equal(isGuideTokenValid(token, 'y'.repeat(40), now), false)
-  assert.equal(isGuideTokenValid(token, 'short', now), false)
-  assert.equal(isGuideTokenValid(`${token}.extra`, SECRET, now), false)
-  assert.equal(isGuideTokenValid(undefined, SECRET, now), false)
+  assert.equal(readGuideToken(`${id}.${Number(expiresAt) + 3600}.${signature}`, SECRET, now), null)
+  assert.equal(readGuideToken(`00000000-0000-4000-8000-000000000000.${expiresAt}.${signature}`, SECRET, now), null)
+  assert.equal(readGuideToken(token, 'y'.repeat(40), now), null)
+  assert.equal(readGuideToken(token, 'short', now), null)
+  assert.equal(readGuideToken(`${token}.extra`, SECRET, now), null)
+  assert.equal(readGuideToken(undefined, SECRET, now), null)
   // A manage token is not a download link.
-  assert.equal(isGuideTokenValid(createManageToken(SUBSCRIBER_ID, SECRET), SECRET, now), false)
+  assert.equal(readGuideToken(createManageToken(SUBSCRIBER_ID, SECRET), SECRET, now), null)
 })
 
 // ---- webhook decisions ----

@@ -1,17 +1,13 @@
-import { fileURLToPath } from 'node:url'
 import { Router } from 'express'
-import { env } from '../../config/env.js'
 import { clientKey } from '../../shared/http/rateLimit.js'
 import {
   applyPlunkWebhook,
   confirmSubscriberEmail,
+  resolveGuideDownload,
   saveSubscriberPreference,
   submitEarlyAccessSignup,
   withdrawSubscriber,
 } from './subscriberService.js'
-import { isGuideTokenValid } from './subscriberTokens.js'
-
-const GUIDE_PDF = fileURLToPath(new URL('./assets/everyday-caring-in-the-kitchen.pdf', import.meta.url))
 
 function noStore(res) {
   res.setHeader('Cache-Control', 'no-store')
@@ -52,14 +48,11 @@ export function createSubscriberRouter() {
     res.status(200).json(await withdrawSubscriber(req.body, req.query))
   })
 
-  // The personal link in the welcome email. People open this in a browser, so
-  // a dead link goes to a page on the site rather than a JSON error.
-  router.get('/subscriber/guide', (req, res) => {
+  // The personal link in the welcome email, opened in a browser: it redirects
+  // to the file, or to a page on the site if the link is dead.
+  router.get('/subscriber/guide', async (req, res) => {
     noStore(res)
-    if (!isGuideTokenValid(req.query.token, env.SUBSCRIBER_TOKEN_SECRET)) {
-      return res.redirect(302, `${env.MARKETING_SITE_URL.replace(/\/+$/, '')}/guide-link-expired`)
-    }
-    return res.download(GUIDE_PDF, 'Everyday-Caring-in-the-Kitchen.pdf')
+    res.redirect(302, await resolveGuideDownload(req.query.token))
   })
 
   // Plunk workflow Webhook steps (contact.subscribed, contact.unsubscribed,

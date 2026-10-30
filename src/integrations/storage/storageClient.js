@@ -53,12 +53,16 @@ export async function createPresignedUploadUrl({ key, contentType, expiresIn = 3
   return getSignedUrl(client, command, { expiresIn })
 }
 
-/** Short-lived presigned GET URL for reading a private object. */
-export async function createPresignedDownloadUrl({ key, expiresIn = 900 }) {
+/**
+ * Short-lived presigned GET URL for reading a private object. `downloadName`
+ * makes the browser save it under that filename instead of displaying it.
+ */
+export async function createPresignedDownloadUrl({ key, expiresIn = 900, downloadName }) {
   const client = getClient()
   const command = new GetObjectCommand({
     Bucket: env.S3_BUCKET,
     Key: key,
+    ...(downloadName ? { ResponseContentDisposition: `attachment; filename="${downloadName}"` } : {}),
   })
   return getSignedUrl(client, command, { expiresIn })
 }

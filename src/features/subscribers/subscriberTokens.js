@@ -61,14 +61,16 @@ export function createGuideToken(subscriberId, expiresAtMs, secret) {
   return `${subscriberId}.${expiresAt}.${guideSignature(subscriberId, expiresAt, secret)}`
 }
 
-export function isGuideTokenValid(token, secret, now = Date.now()) {
-  if (typeof token !== 'string' || typeof secret !== 'string' || secret.length < 32) return false
+/** Returns the subscriber id a live guide token was issued for, or null. */
+export function readGuideToken(token, secret, now = Date.now()) {
+  if (typeof token !== 'string' || typeof secret !== 'string' || secret.length < 32) return null
 
   const [subscriberId, expiresAt, signature, ...extra] = token.split('.')
-  if (extra.length || !UUID_PATTERN.test(subscriberId ?? '') || !/^\d+$/.test(expiresAt ?? '') || !signature) return false
+  if (extra.length || !UUID_PATTERN.test(subscriberId ?? '') || !/^\d+$/.test(expiresAt ?? '') || !signature) return null
 
-  return signaturesMatch(signature, guideSignature(subscriberId, expiresAt, secret))
+  const valid = signaturesMatch(signature, guideSignature(subscriberId, expiresAt, secret))
     && Number(expiresAt) * 1000 > now
+  return valid ? subscriberId : null
 }
 
 function signaturesMatch(given, expected) {
