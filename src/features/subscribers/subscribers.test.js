@@ -18,13 +18,15 @@ import {
   __readPlunkWebhookForTests as readPlunkWebhook,
 } from './subscriberService.js'
 import {
+  createGuideToken,
   createManageToken,
   createOpaqueToken,
   hashToken,
   isOpaqueToken,
+  readGuideToken,
   readManageToken,
 } from './subscriberTokens.js'
-import { __parseSenderForTests as parseSender, verifyPlunkWebhook } from '../../integrations/email/plunk.js'
+import { verifyPlunkWebhook } from '../../integrations/email/plunk.js'
 import { createRateLimiter } from '../../shared/http/rateLimit.js'
 import { __normalizeContactMessageForTests as normalizeContactMessage } from '../site-contact/siteContactService.js'
 
@@ -111,6 +113,26 @@ test('manage tokens round-trip and reject tampering, other secrets and short sec
   assert.equal(readManageToken(undefined, SECRET), null)
 })
 
+test('guide tokens identify their subscriber until they expire, and reject tampering and other secrets', () => {
+  const now = Date.parse('2026-10-30T10:00:00Z')
+  const hours = (n) => n * 60 * 60 * 1000
+  const token = createGuideToken(SUBSCRIBER_ID, now + hours(48), SECRET)
+
+  assert.equal(readGuideToken(token, SECRET, now), SUBSCRIBER_ID)
+  assert.equal(readGuideToken(token, SECRET, now + hours(47)), SUBSCRIBER_ID)
+  assert.equal(readGuideToken(token, SECRET, now + hours(48)), null)
+
+  const [id, expiresAt, signature] = token.split('.')
+  assert.equal(readGuideToken(`${id}.${Number(expiresAt) + 3600}.${signature}`, SECRET, now), null)
+  assert.equal(readGuideToken(`00000000-0000-4000-8000-000000000000.${expiresAt}.${signature}`, SECRET, now), null)
+  assert.equal(readGuideToken(token, 'y'.repeat(40), now), null)
+  assert.equal(readGuideToken(token, 'short', now), null)
+  assert.equal(readGuideToken(`${token}.extra`, SECRET, now), null)
+  assert.equal(readGuideToken(undefined, SECRET, now), null)
+  // A manage token is not a download link.
+  assert.equal(readGuideToken(createManageToken(SUBSCRIBER_ID, SECRET), SECRET, now), null)
+})
+
 // ---- webhook decisions ----
 
 const confirmedAt = new Date('2026-10-20T10:00:00Z')
@@ -192,7 +214,7 @@ test('reads the trigger from ?event= and the rest from the default webhook body'
   assert.ok(Number.isNaN(readPlunkWebhook({}, {}).eventTime))
 })
 
-// ---- Plunk webhook secret and sender ----
+// ---- Plunk webhook secret ----
 
 const WEBHOOK_SECRET = 'w'.repeat(40)
 
@@ -204,13 +226,6 @@ test('accepts only the exact Bearer webhook secret', () => {
   // A short or missing server secret never matches, not even itself.
   assert.equal(verifyPlunkWebhook({ headers: { authorization: 'Bearer short' }, secret: 'short' }), false)
   assert.equal(verifyPlunkWebhook({ headers: { authorization: 'Bearer ' }, secret: '' }), false)
-})
-
-test('splits a display-name sender into the object Plunk expects', () => {
-  assert.deepEqual(parseSender('Pop & Ladle <hello@popladle.com>'), { name: 'Pop & Ladle', email: 'hello@popladle.com' })
-  assert.deepEqual(parseSender('"Pop & Ladle" <hello@popladle.com>'), { name: 'Pop & Ladle', email: 'hello@popladle.com' })
-  assert.equal(parseSender('<hello@popladle.com>'), 'hello@popladle.com')
-  assert.equal(parseSender('hello@popladle.com'), 'hello@popladle.com')
 })
 
 // ---- rate limiting ----

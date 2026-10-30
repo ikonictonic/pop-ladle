@@ -3,21 +3,20 @@ import { getDatabasePool } from '../../database/pool.js'
 import { createHttpError } from '../households/householdAccess.js'
 import {
   getPlunkTransport,
-  sendPlunkEmail,
+  sendPlunkTemplate,
   trackPlunkEvent,
   upsertPlunkContact,
   verifyPlunkWebhook,
 } from '../../integrations/email/plunk.js'
-import {
-  renderSubscriberConfirmEmail,
-  renderWelcomePlannerEmail,
-} from '../../integrations/email/templates/subscriberEmails.js'
+import { createPresignedDownloadUrl, isStorageConfigured } from '../../integrations/storage/storageClient.js'
 import { createRateLimiter } from '../../shared/http/rateLimit.js'
 import {
+  createGuideToken,
   createManageToken,
   createOpaqueToken,
   hashToken,
   isOpaqueToken,
+  readGuideToken,
   readManageToken,
 } from './subscriberTokens.js'
 
@@ -59,7 +58,9 @@ const CONFIRMATION_TTL_HOURS = 48
 const SIGNUP_SESSION_TTL_HOURS = 2
 const DUPLICATE_WINDOW_SECONDS = 60
 const MEAL_PLANNING_EVENT = 'meal_planning.started'
-const PLANNER_PATH = '/Everyday-Kitchen-Planner.pdf'
+const GUIDE_LINK_TTL_MS = 48 * 60 * 60 * 1000
+const GUIDE_FILE_URL_TTL_SECONDS = 300
+const GUIDE_FILENAME = 'Everyday-Caring-in-the-Kitchen.pdf'
 
 const signupsPerClient = createRateLimiter({ max: 10, windowMs: 60 * 60 * 1000 })
 const confirmationsPerAddress = createRateLimiter({ max: 5, windowMs: 24 * 60 * 60 * 1000 })
@@ -130,10 +131,8 @@ function requireSubscriberService() {
   if (!db) {
     throw createHttpError(503, 'DATABASE_NOT_CONFIGURED', 'DATABASE_URL is not set.', true)
   }
-  // In production a console transport would silently drop confirmations, and
-  // Plunk sends only from a verified domain, so the sender must be explicit.
-  const canSend = getPlunkTransport() === 'plunk' && Boolean(env.SUBSCRIBER_EMAIL_FROM)
-  if (!env.SUBSCRIBER_TOKEN_SECRET || (env.NODE_ENV === 'production' && !canSend)) {
+  // In production a console transport would silently drop confirmations.
+  if (!env.SUBSCRIBER_TOKEN_SECRET || (env.NODE_ENV === 'production' && getPlunkTransport() !== 'plunk')) {
     throw createHttpError(503, 'SUBSCRIBERS_NOT_CONFIGURED', 'The subscriber service is not configured.', true)
   }
   return db
@@ -179,10 +178,6 @@ async function recordSyncFailure(db, subscriberId, step, err) {
 
 function siteUrl(path) {
   return `${env.MARKETING_SITE_URL.replace(/\/+$/, '')}${path}`
-}
-
-function subscriberEmailFrom() {
-  return env.SUBSCRIBER_EMAIL_FROM || env.EMAIL_FROM
 }
 
 function interestData(interest, source, updatedAt) {
@@ -288,11 +283,12 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
   await cleanUpExpiredTokens(db).catch(() => {})
 
   if (outcome === 'confirmation_sent') {
-    const content = renderSubscriberConfirmEmail({
-      confirmUrl: siteUrl(`/confirm-email?token=${confirmationToken}`),
-    })
     try {
-      const result = await sendPlunkEmail({ to: input.email, from: subscriberEmailFrom(), ...content })
+      const result = await sendPlunkTemplate({
+        to: input.email,
+        template: env.PLUNK_CONFIRMATION_TEMPLATE_ID,
+        variables: { confirmUrl: siteUrl(`/confirm-email?token=${confirmationToken}`) },
+      })
       await recordEvent(db, subscriber.id, 'confirmation_email_sent', { transport: result.transport })
     } catch (err) {
       await recordEvent(db, subscriber.id, 'confirmation_email_failed', {
@@ -481,17 +477,13 @@ export async function confirmSubscriberEmail(payload) {
 
 async function sendWelcomeEmail(db, subscriber) {
   const manageToken = createManageToken(subscriber.id, env.SUBSCRIBER_TOKEN_SECRET)
-  const content = renderWelcomePlannerEmail({
-    plannerUrl: siteUrl(PLANNER_PATH),
-    preferencesUrl: siteUrl(`/preferences?token=${manageToken}`),
-    mailingAddress: env.MAILING_ADDRESS,
-  })
+  const guideToken = createGuideToken(subscriber.id, Date.now() + GUIDE_LINK_TTL_MS, env.SUBSCRIBER_TOKEN_SECRET)
 
   try {
-    await sendPlunkEmail({
+    await sendPlunkTemplate({
       to: subscriber.email,
-      from: subscriberEmailFrom(),
-      ...content,
+      template: env.PLUNK_WELCOME_TEMPLATE_ID,
+      variables: { guideDownloadUrl: siteUrl(`/api/subscriber/guide?token=${guideToken}`) },
       headers: {
         'List-Unsubscribe': `<${siteUrl(`/api/subscriber/withdraw?token=${manageToken}`)}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -514,6 +506,38 @@ async function sendWelcomeEmail(db, subscriber) {
       error: err?.message ?? String(err),
     }))
   }
+}
+
+// ---- GET /subscriber/guide (the personal link in the welcome email) ----
+
+/**
+ * Where a guide link should send the browser. The emailed link is personal and
+ * lasts 48 hours; the R2 URL behind it lasts minutes and is signed per click, so
+ * the file is never reachable through a long-lived or shared address. Every
+ * download lands in the subscriber's history.
+ */
+export async function resolveGuideDownload(token) {
+  const db = requireSubscriberService()
+  if (!isStorageConfigured() || !env.SUBSCRIBER_GUIDE_KEY) {
+    throw createHttpError(503, 'GUIDE_NOT_CONFIGURED', 'The guide is not available right now.', true)
+  }
+
+  const subscriberId = readGuideToken(token, env.SUBSCRIBER_TOKEN_SECRET)
+  const current = subscriberId
+    ? await db.query(`select ${SUBSCRIBER_COLUMNS} from email_subscribers where id = $1`, [subscriberId])
+    : null
+  const subscriber = current?.rows[0]
+  if (!subscriber || subscriber.consentStatus !== 'confirmed' || subscriber.suppressedAt) {
+    return siteUrl('/guide-link-expired')
+  }
+
+  const url = await createPresignedDownloadUrl({
+    key: env.SUBSCRIBER_GUIDE_KEY,
+    expiresIn: GUIDE_FILE_URL_TTL_SECONDS,
+    downloadName: GUIDE_FILENAME,
+  })
+  await recordEvent(db, subscriber.id, 'guide_downloaded').catch(() => {})
+  return url
 }
 
 // ---- POST /subscriber/withdraw (preferences page and one-click List-Unsubscribe) ----

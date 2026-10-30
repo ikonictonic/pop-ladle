@@ -3,6 +3,7 @@ import { clientKey } from '../../shared/http/rateLimit.js'
 import {
   applyPlunkWebhook,
   confirmSubscriberEmail,
+  resolveGuideDownload,
   saveSubscriberPreference,
   submitEarlyAccessSignup,
   withdrawSubscriber,
@@ -19,8 +20,8 @@ function noStore(res) {
  * Mounted BEFORE the frontend gate and Clerk: the public landing page must be
  * able to sign people up while the app is still behind the beta password.
  * Nothing here reads req.authContext; access comes from the opaque signup
- * session, the emailed confirmation token, the signed manage token, or the
- * Plunk webhook secret.
+ * session, the emailed confirmation token, the signed manage or guide token,
+ * or the Plunk webhook secret.
  */
 export function createSubscriberRouter() {
   const router = Router()
@@ -45,6 +46,13 @@ export function createSubscriberRouter() {
   router.post('/subscriber/withdraw', async (req, res) => {
     noStore(res)
     res.status(200).json(await withdrawSubscriber(req.body, req.query))
+  })
+
+  // The personal link in the welcome email, opened in a browser: it redirects
+  // to the file, or to a page on the site if the link is dead.
+  router.get('/subscriber/guide', async (req, res) => {
+    noStore(res)
+    res.redirect(302, await resolveGuideDownload(req.query.token))
   })
 
   // Plunk workflow Webhook steps (contact.subscribed, contact.unsubscribed,

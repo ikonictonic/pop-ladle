@@ -50,20 +50,25 @@ export async function trackPlunkEvent({ event, email }) {
 }
 
 /**
- * Send one email. Without a template Plunk treats it as transactional: it
- * reaches unsubscribed contacts (the confirmation email has to) and gets no
- * Plunk footer, so marketing content brings its own unsubscribe link and
- * List-Unsubscribe `headers`, which override Plunk's. The recipient becomes a
- * Plunk contact; a new one starts unsubscribed. A reused `idempotencyKey`
- * means Plunk already sent it, which counts as sent.
+ * Send one Plunk template. `variables` fill its {{placeholders}} for this send
+ * only, so links are never stored on the contact; sender and subject come from
+ * the template. A Transactional template reaches unsubscribed contacts (the
+ * confirmation email has to). A Marketing one needs the contact subscribed
+ * first and gets Plunk's unsubscribe footer. `headers` override Plunk's, so
+ * List-Unsubscribe can point at our own endpoint. The recipient becomes a Plunk
+ * contact; a new one starts unsubscribed. A reused `idempotencyKey` means Plunk
+ * already sent it, which counts as sent.
  */
-export async function sendPlunkEmail({ to, from, subject, html, text, headers, idempotencyKey }) {
+export async function sendPlunkTemplate({ to, template, variables, headers, idempotencyKey }) {
   if (getPlunkTransport() === 'console') {
-    logConsole('Email', { to, subject, preview: typeof text === 'string' ? text.slice(0, 280) : null })
+    logConsole('Email', { to, template, variables })
     return { transport: 'console' }
   }
 
-  const body = { to, from: parseSender(from), subject, body: html }
+  const data = Object.fromEntries(
+    Object.entries(variables).map(([key, value]) => [key, { value, persistent: false }]),
+  )
+  const body = { to, template, data }
   if (headers) body.headers = headers
 
   const result = await plunkRequest('/v1/send', body, env.PLUNK_SECRET_KEY, { idempotencyKey })
@@ -79,13 +84,6 @@ export function verifyPlunkWebhook({ headers, secret }) {
   const header = headers?.authorization
   if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false
   return timingSafeEqual(digest(header.slice('Bearer '.length)), digest(secret))
-}
-
-// "Pop & Ladle <hello@popladle.com>" → { name, email }; a bare address stays as is.
-function parseSender(value) {
-  const match = /^\s*"?([^"<]*?)"?\s*<([^<>\s]+@[^<>\s]+)>\s*$/.exec(value ?? '')
-  if (!match) return value
-  return match[1] ? { name: match[1], email: match[2] } : match[2]
 }
 
 function digest(value) {
@@ -122,5 +120,3 @@ function logConsole(message, detail) {
     ...detail,
   }))
 }
-
-export const __parseSenderForTests = parseSender

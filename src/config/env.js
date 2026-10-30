@@ -64,19 +64,20 @@ export const env = Object.freeze({
   // SUBSCRIBER_TOKEN_SECRET signs preference/unsubscribe links; unset = the
   // subscriber endpoints return 503. Subscriber contacts, workflow events and
   // email go through Plunk: PLUNK_SECRET_KEY (sk_) and PLUNK_PUBLIC_KEY (pk_,
-  // /v1/track only) together, else a console transport. SUBSCRIBER_EMAIL_FROM
-  // must be on a Plunk-verified domain (required in production).
+  // /v1/track only) together, else a console transport. The two template ids
+  // are the confirmation and welcome emails; sender and copy live in Plunk.
+  // SUBSCRIBER_GUIDE_KEY is the guide PDF's object key in the S3_BUCKET bucket.
   // PLUNK_WEBHOOK_SECRET is the Bearer token Plunk's Webhook steps send.
-  // MAILING_ADDRESS is the postal address marketing email must carry.
   // CONTACT_INBOX receives contact-form messages; unset = that form returns 503.
   MARKETING_SITE_URL: process.env.MARKETING_SITE_URL ?? 'http://localhost:3000',
   SUBSCRIBER_TOKEN_SECRET: subscriberTokenSecret,
-  SUBSCRIBER_EMAIL_FROM: process.env.SUBSCRIBER_EMAIL_FROM ?? '',
   PLUNK_API_URL: (process.env.PLUNK_API_URL || 'https://next-api.useplunk.com').replace(/\/+$/, ''),
   PLUNK_SECRET_KEY: process.env.PLUNK_SECRET_KEY ?? '',
   PLUNK_PUBLIC_KEY: process.env.PLUNK_PUBLIC_KEY ?? '',
   PLUNK_WEBHOOK_SECRET: plunkWebhookSecret,
-  MAILING_ADDRESS: process.env.MAILING_ADDRESS ?? '',
+  PLUNK_CONFIRMATION_TEMPLATE_ID: process.env.PLUNK_CONFIRMATION_TEMPLATE_ID || 'a2d639b9-a5cb-4a0e-b269-a9f5faa91282',
+  PLUNK_WELCOME_TEMPLATE_ID: process.env.PLUNK_WELCOME_TEMPLATE_ID || '7af5a3cd-a2d1-4613-b9fd-49f4e3945b82',
+  SUBSCRIBER_GUIDE_KEY: process.env.SUBSCRIBER_GUIDE_KEY ?? '',
   CONTACT_INBOX: process.env.CONTACT_INBOX ?? '',
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
   // and localhost dev are always allowed. Set to '*' to allow any origin.
