@@ -1,7 +1,7 @@
 import { env } from '../../config/env.js'
 import { createHttpError } from '../households/householdAccess.js'
 import { getEmailTransport, sendEmail } from '../../integrations/email/emailClient.js'
-import { renderContactMessageEmail } from '../../integrations/email/templates/subscriberEmails.js'
+import { renderContactMessageEmail } from '../../integrations/email/templates/siteContactEmail.js'
 import { createRateLimiter } from '../../shared/http/rateLimit.js'
 
 // =============================================================================

@@ -14,7 +14,8 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
 |---|---|---|
 | `POST /api/v1/early-access` | rate limit + honeypot | Records a pending signup with consent evidence, emails the confirmation link, returns a 2-hour `signup_session` |
 | `POST /api/v1/subscriber/preference` | `signup_session` or `manage_token` | Saves `primary_interest`; never changes subscription state |
-| `POST /api/v1/subscriber/confirm` | emailed token (single use, 48 h) | Confirms, subscribes the Plunk contact, sends the planner email once, starts the meal-planning workflow |
+| `POST /api/v1/subscriber/confirm` | emailed token (single use, 48 h) | Confirms, subscribes the Plunk contact, sends the welcome email once, starts the meal-planning workflow if that interest was chosen |
+| `GET /api/v1/subscriber/guide?token=…` | signed token (personal, 48 h) | Serves the *Everyday Caring in the Kitchen* PDF from `assets/`; a dead link redirects to the site's `/guide-link-expired` |
 | `POST /api/v1/subscriber/withdraw` | `manage_token` (body or `?token=`) | Withdraws and unsubscribes in Plunk. Also takes RFC 8058 one-click POSTs |
 | `POST /api/v1/subscriber/plunk-events?event=…` | `Authorization: Bearer PLUNK_WEBHOOK_SECRET` | Reconciles `contact.subscribed`, `contact.unsubscribed`, `email.bounce`, `email.complaint` |
 | `POST /api/v1/contact` | rate limit + honeypot | Emails the message to `CONTACT_INBOX` (still through Resend); not stored, not a subscription |
@@ -39,17 +40,24 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
 
 1. Settings → API Keys: put the secret key in `PLUNK_SECRET_KEY` and the
    public key in `PLUNK_PUBLIC_KEY` (`/v1/track` takes only the public key).
-2. Domains: verify popladle.com and set `SUBSCRIBER_EMAIL_FROM`, e.g.
-   `Pop & Ladle <hello@popladle.com>`. Contact `data` fields (`primary_interest`,
+2. Domains: verify popladle.com. Contact `data` fields (`primary_interest`,
    `interest_source`, `interest_updated_at`, `signup_source`, `signup_locale`,
    `onboarding_stage`) are created on first use; nothing to define.
-3. Optional: a dynamic segment "Early access" where `signup_source` is
+3. Templates: subject, sender and copy live in Plunk. The backend sends these
+   by id and fills one variable in each:
+   - Subscription Confirmation Email (Transactional): `{{confirmUrl}}` on the
+     button. Do not use `{{subscribeUrl}}`: that is Plunk's own hosted page, it
+     overrides any value we send, and it would skip our consent ledger.
+   - Pop & Ladle, Welcome Email (Marketing): `{{guideDownloadUrl}}`, a personal
+     link valid for 48 hours. Marketing emails must carry the postal address
+     (CAN-SPAM), which Plunk's footer does not add.
+4. Optional: a dynamic segment "Early access" where `signup_source` is
    `early_access_landing`.
-4. Meal-planning workflow: trigger on the event `meal_planning.started` →
+5. Meal-planning workflow: trigger on the event `meal_planning.started` →
    delay 4 days → "A little planning for the week ahead." → delay 5 days →
    "One meal, a few ways to serve it." Use Marketing templates: Plunk adds the
    unsubscribe footer and skips unsubscribed contacts. Leave re-entry off.
-5. Webhook workflows, one per trigger: `contact.unsubscribed`,
+6. Webhook workflows, one per trigger: `contact.unsubscribed`,
    `contact.subscribed`, `email.bounce`, `email.complaint`. Each has one
    Webhook step: POST `https://<api-host>/api/v1/subscriber/plunk-events?event=<trigger>`,
    header `{"Authorization": "Bearer <PLUNK_WEBHOOK_SECRET>"}`, no custom body.
