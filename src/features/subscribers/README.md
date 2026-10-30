@@ -50,10 +50,10 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
      overrides any value we send, and it would skip our consent ledger.
    - Pop & Ladle, Welcome Email (Marketing): `{{guideDownloadUrl}}`, a personal
      link valid for 48 hours. The PDF stays private in the R2 bucket
-     `welcome-email-download` (`SUBSCRIBER_GUIDE_BUCKET`): set
-     `SUBSCRIBER_GUIDE_KEY` to its object key, and give the `S3_*` API token read
-     access to that bucket. Marketing emails must carry the postal address
-     (CAN-SPAM), which Plunk's footer does not add.
+     `welcome-email-download`, read with its own read-only token
+     (`SUBSCRIBER_GUIDE_ACCESS_KEY_ID`, `SUBSCRIBER_GUIDE_SECRET_ACCESS_KEY`) on
+     `S3_ENDPOINT`. Marketing emails must carry the postal address (CAN-SPAM),
+     which Plunk's footer does not add.
 4. Optional: a dynamic segment "Early access" where `signup_source` is
    `early_access_landing`.
 5. Meal-planning workflow: trigger on the event `meal_planning.started` →
