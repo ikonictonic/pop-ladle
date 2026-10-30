@@ -66,7 +66,8 @@ export const env = Object.freeze({
   // email go through Plunk: PLUNK_SECRET_KEY (sk_) and PLUNK_PUBLIC_KEY (pk_,
   // /v1/track only) together, else a console transport. The two template ids
   // are the confirmation and welcome emails; sender and copy live in Plunk.
-  // SUBSCRIBER_GUIDE_KEY is the guide PDF's object key in the S3_BUCKET bucket.
+  // SUBSCRIBER_GUIDE_KEY is the guide PDF's object key in SUBSCRIBER_GUIDE_BUCKET;
+  // the S3_* credentials must be able to read that bucket.
   // PLUNK_WEBHOOK_SECRET is the Bearer token Plunk's Webhook steps send.
   // CONTACT_INBOX receives contact-form messages; unset = that form returns 503.
   MARKETING_SITE_URL: process.env.MARKETING_SITE_URL ?? 'http://localhost:3000',
@@ -77,6 +78,7 @@ export const env = Object.freeze({
   PLUNK_WEBHOOK_SECRET: plunkWebhookSecret,
   PLUNK_CONFIRMATION_TEMPLATE_ID: process.env.PLUNK_CONFIRMATION_TEMPLATE_ID || 'a2d639b9-a5cb-4a0e-b269-a9f5faa91282',
   PLUNK_WELCOME_TEMPLATE_ID: process.env.PLUNK_WELCOME_TEMPLATE_ID || '7af5a3cd-a2d1-4613-b9fd-49f4e3945b82',
+  SUBSCRIBER_GUIDE_BUCKET: process.env.SUBSCRIBER_GUIDE_BUCKET || 'welcome-email-download',
   SUBSCRIBER_GUIDE_KEY: process.env.SUBSCRIBER_GUIDE_KEY ?? '',
   CONTACT_INBOX: process.env.CONTACT_INBOX ?? '',
   // Extra browser origins allowed to call this API (comma-separated). APP_BASE_URL
