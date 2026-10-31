@@ -3,6 +3,7 @@ import { getDatabasePool } from '../../database/pool.js'
 import { createHttpError } from '../households/householdAccess.js'
 import {
   getPlunkTransport,
+  plunkContactExists,
   sendPlunkTemplate,
   trackPlunkEvent,
   upsertPlunkContact,
@@ -36,7 +37,10 @@ import {
 //     a suppression (bounce/complaint).
 //   * Repeats are idempotent: duplicate signups within a minute reuse the
 //     pending link, a confirmation token works once, the welcome email is sent
-//     once, and webhook deliveries are de-duplicated by Plunk execution id.
+//     once per confirmation, and webhook deliveries are de-duplicated by Plunk
+//     execution id.
+//   * Deleting a contact in Plunk restarts them: the next signup is treated as
+//     new, so they confirm again and get every email again.
 //   * The interest question is optional, about kitchen help, never medical.
 // =============================================================================
 
@@ -199,6 +203,33 @@ async function cleanUpExpiredTokens(db) {
 
 // ---- POST /early-access ----
 
+// A row that was confirmed but has no Plunk contact means someone deleted the
+// contact there. Suppressed addresses stay blocked, and when Plunk cannot answer
+// nothing changes: the person stays as they are and gets no email.
+async function contactWasDeleted(db, email) {
+  const existing = await db.query('select confirmed_at, suppressed_at from email_subscribers where email = $1', [email])
+  const row = existing.rows[0]
+  if (!row?.confirmed_at || row.suppressed_at) return false
+
+  try {
+    return !(await plunkContactExists(email))
+  } catch (err) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'Plunk contact lookup failed',
+      error: err?.message ?? String(err),
+    }))
+    return false
+  }
+}
+
+function decideSignup(row, { isNew, contactDeleted, addressAllowed }) {
+  if (row.suppressedAt) return 'suppressed'
+  if (row.consentStatus === 'confirmed' && !contactDeleted) return 'already_confirmed'
+  if (!isNew && row.confirmationTokenHash && row.submittedRecently) return 'duplicate'
+  return addressAllowed() ? 'confirmation_sent' : 'address_rate_limited'
+}
+
 export async function submitEarlyAccessSignup(payload, { clientKey }) {
   const db = requireSubscriberService()
   const input = normalizeSignupInput(payload)
@@ -211,6 +242,7 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
 
   const confirmationToken = createOpaqueToken()
   const sessionToken = createOpaqueToken()
+  const contactDeleted = await contactWasDeleted(db, input.email)
 
   const { subscriber, outcome } = await inTransaction(db, async (client) => {
     const inserted = await client.query(
@@ -236,12 +268,11 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
 
     // The response is the same for every outcome so the form never reveals
     // whether an address is already on the list.
-    let decided
-    if (row.suppressedAt) decided = 'suppressed'
-    else if (row.consentStatus === 'confirmed') decided = 'already_confirmed'
-    else if (!isNew && row.confirmationTokenHash && row.submittedRecently) decided = 'duplicate'
-    else if (!confirmationsPerAddress(input.email)) decided = 'address_rate_limited'
-    else decided = 'confirmation_sent'
+    const decided = decideSignup(row, {
+      isNew,
+      contactDeleted,
+      addressAllowed: () => confirmationsPerAddress(input.email),
+    })
 
     if (decided === 'confirmation_sent') {
       await client.query(
@@ -253,10 +284,14 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
               submitted_at = now(),
               confirmation_token_hash = $5,
               confirmation_expires_at = now() + make_interval(hours => $6),
+              consent_status = case when $7 then 'pending' else consent_status end,
+              confirmed_at = case when $7 then null else confirmed_at end,
+              welcome_sent_at = case when $7 then null else welcome_sent_at end,
+              meal_planning_started_at = case when $7 then null else meal_planning_started_at end,
               updated_at = now()
           where id = $1
         `,
-        [row.id, input.consentTextVersion, PRIVACY_NOTICE_VERSION, CONSENT_SOURCE, hashToken(confirmationToken), CONFIRMATION_TTL_HOURS],
+        [row.id, input.consentTextVersion, PRIVACY_NOTICE_VERSION, CONSENT_SOURCE, hashToken(confirmationToken), CONFIRMATION_TTL_HOURS, contactDeleted],
       )
     }
 
@@ -267,6 +302,7 @@ export async function submitEarlyAccessSignup(payload, { clientKey }) {
       privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
       consentSource: CONSENT_SOURCE,
       sourcePage: input.sourcePage,
+      ...(contactDeleted ? { restartedAfterPlunkDeletion: true } : {}),
     })
 
     await client.query(
@@ -488,7 +524,7 @@ async function sendWelcomeEmail(db, subscriber) {
         'List-Unsubscribe': `<${siteUrl(`/api/subscriber/withdraw?token=${manageToken}`)}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
-      idempotencyKey: `welcome-${subscriber.id}`,
+      idempotencyKey: `welcome-${subscriber.id}-${new Date(subscriber.confirmedAt).getTime()}`,
     })
     await db.query(
       'update email_subscribers set welcome_sent_at = now(), updated_at = now() where id = $1 and welcome_sent_at is null',
@@ -735,6 +771,7 @@ export async function applyPlunkWebhook({ body, query, headers }) {
 
 export const __normalizeSignupInputForTests = normalizeSignupInput
 export const __normalizeInterestForTests = normalizeInterest
+export const __decideSignupForTests = decideSignup
 export const __decideWebhookActionForTests = decideWebhookAction
 export const __readPlunkWebhookForTests = readPlunkWebhook
 export const __CONSENT_TEXTS_FOR_TESTS = CONSENT_TEXTS
