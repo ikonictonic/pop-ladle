@@ -50,6 +50,18 @@ export async function trackPlunkEvent({ event, email }) {
 }
 
 /**
+ * Whether Plunk still holds a contact for `email`. Deleting one in the dashboard
+ * sends us no event, so asking is the only way to find out. A failed request
+ * throws, so the caller decides what an outage means.
+ */
+export async function plunkContactExists(email) {
+  if (getPlunkTransport() === 'console') return true
+
+  const { found } = await plunkRequest('/contacts/lookup', { emails: [email] }, env.PLUNK_SECRET_KEY)
+  return Array.isArray(found) && found.length > 0
+}
+
+/**
  * Send one Plunk template. `variables` fill its {{placeholders}} for this send
  * only, so links are never stored on the contact; sender and subject come from
  * the template. A Transactional template reaches unsubscribed contacts (the

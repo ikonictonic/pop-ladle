@@ -31,6 +31,10 @@ All mounted before the frontend gate and Clerk; none read `req.authContext`.
 - A repeated signup never clears a withdrawal or suppression. Only a new
   confirmation re-subscribes a withdrawn address; nothing re-subscribes a
   suppressed one.
+- Deleting a contact in Plunk is the one way to restart an address. Plunk sends
+  no event for it, so a confirmed address that signs up again is looked up
+  there. If the contact is gone, the address goes back to pending and gets the
+  confirmation and welcome emails again. Suppressed addresses stay blocked.
 - Webhook deliveries are de-duplicated by Plunk execution id, and contact
   events older than the latest consent change are ignored, so our own Plunk
   updates echoing back are harmless.

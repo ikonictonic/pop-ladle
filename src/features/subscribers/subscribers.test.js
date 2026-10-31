@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 
 import {
   __CONSENT_TEXTS_FOR_TESTS as CONSENT_TEXTS,
+  __decideSignupForTests as decideSignup,
   __decideWebhookActionForTests as decideWebhookAction,
   __normalizeInterestForTests as normalizeInterest,
   __normalizeSignupInputForTests as normalizeSignupInput,
@@ -87,6 +88,28 @@ test('accepts only the five interest codes', () => {
   for (const bad of [undefined, '', 'Meal_Planning', 'diabetes', ['meal_planning']]) {
     expectHttp(() => normalizeInterest(bad), 'INVALID_INTEREST')
   }
+})
+
+// ---- signup decisions ----
+
+test('a confirmed address only restarts once its Plunk contact is gone', () => {
+  const allowed = () => true
+  const confirmed = { consentStatus: 'confirmed' }
+  assert.equal(decideSignup(confirmed, { contactDeleted: false, addressAllowed: allowed }), 'already_confirmed')
+  assert.equal(decideSignup(confirmed, { contactDeleted: true, addressAllowed: allowed }), 'confirmation_sent')
+})
+
+test('suppression beats a deleted contact, and restarts still honor the address rate limit', () => {
+  const suppressed = { consentStatus: 'confirmed', suppressedAt: new Date() }
+  assert.equal(decideSignup(suppressed, { contactDeleted: true, addressAllowed: () => true }), 'suppressed')
+  assert.equal(decideSignup({ consentStatus: 'confirmed' }, { contactDeleted: true, addressAllowed: () => false }), 'address_rate_limited')
+})
+
+test('new, pending and withdrawn addresses keep their existing outcomes', () => {
+  const allowed = () => true
+  assert.equal(decideSignup({ consentStatus: 'pending' }, { isNew: true, addressAllowed: allowed }), 'confirmation_sent')
+  assert.equal(decideSignup({ consentStatus: 'pending', confirmationTokenHash: 'x', submittedRecently: true }, { addressAllowed: allowed }), 'duplicate')
+  assert.equal(decideSignup({ consentStatus: 'withdrawn' }, { addressAllowed: allowed }), 'confirmation_sent')
 })
 
 // ---- tokens ----
